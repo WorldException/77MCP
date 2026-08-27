@@ -118,3 +118,36 @@ def test_strip_header_triple_ff():
 
 def test_strip_header_empty():
     assert ole_reader._strip_header(b'') == b''
+
+
+# --- Standalone external processing (.ert) tests ---
+
+ERT_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "2.ert")
+
+
+@pytest.mark.skipif(not os.path.exists(ERT_FILE), reason="Test file 2.ert not found")
+def test_get_root_object_streams_ert():
+    ole = ole_reader.open_md_file(ERT_FILE)
+    streams = ole_reader.get_root_object_streams(ole)
+    assert streams.get("dialog") == "Dialog Stream"
+    assert streams.get("module") == "MD Programm text"
+    ole.close()
+
+
+@pytest.mark.skipif(not os.path.exists(ERT_FILE), reason="Test file 2.ert not found")
+def test_read_module_text_ert():
+    ole = ole_reader.open_md_file(ERT_FILE)
+    streams = ole_reader.get_root_object_streams(ole)
+    text = ole_reader.read_module_text(ole, streams["module"])
+    assert "Процедура" in text
+    assert "КонецПроцедуры" in text
+    ole.close()
+
+
+@pytest.mark.skipif(not os.path.exists(ERT_FILE), reason="Test file 2.ert not found")
+def test_read_stream_text_ert_dialog():
+    ole = ole_reader.open_md_file(ERT_FILE)
+    streams = ole_reader.get_root_object_streams(ole)
+    text = ole_reader.read_stream_text(ole, streams["dialog"])
+    assert "Dialogs" in text
+    ole.close()

@@ -49,8 +49,8 @@
     display: flex; justify-content: space-between;
     padding: 0.4rem 0; border-bottom: 1px solid #f0f0f0;
   }
-  .status-item .label { color: #888; }
-  .status-item .value { font-weight: 600; }
+  .status-item .label { color: #888; flex-shrink: 0; margin-right: 1rem; }
+  .status-item .value { font-weight: 600; word-break: break-all; text-align: right; }
   .btn {
     display: inline-block; padding: 0.5rem 1.25rem; border: none;
     border-radius: 6px; cursor: pointer; font-size: 0.9rem;
@@ -85,6 +85,15 @@
     <div class="fill" id="progressFill"></div>
   </div>
   <div id="uploadMsg" style="margin-top:0.75rem; text-align:center; font-size:0.9rem;"></div>
+</div>
+
+<div class="card" id="server-info">
+  <div class="status">
+    <h3>Server Mode</h3>
+    <div class="status-item"><span class="label">Base directory</span><span class="value" id="serverBaseDir"></span></div>
+    <div class="status-item"><span class="label">External processing (.ert) directories</span><span class="value" id="serverExtDirs"></span></div>
+    <div class="status-item"><span class="label">External processing files found</span><span class="value" id="serverErtCount"></span></div>
+  </div>
 </div>
 
 <div class="card" id="config-info">
@@ -193,6 +202,11 @@ function loadStatus() {
   fetch('/api/status')
     .then(r => r.json())
     .then(data => {
+      if (data.server) {
+        document.getElementById('serverBaseDir').textContent = data.server.base_dir;
+        document.getElementById('serverExtDirs').textContent = data.server.ext_dirs.join(', ');
+        document.getElementById('serverErtCount').textContent = data.server.ert_count;
+      }
       if (!data.loaded) { configInfo.style.display = 'none'; return; }
       configInfo.style.display = 'block';
       document.getElementById('configName').textContent = data.name || 'Unnamed';

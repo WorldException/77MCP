@@ -9,6 +9,7 @@ from dataclasses import field as dc_field
 from pathlib import Path
 
 from . import sql_naming
+from .ert_loader import ErtLoader
 from .metadata import ConfigurationLoader
 from .models import ModuleProcedure, ModuleStructure
 
@@ -16,6 +17,9 @@ from .models import ModuleProcedure, ModuleStructure
 _loader = ConfigurationLoader()
 _md_path: str = ""
 _data_dir: Path | None = None
+
+# Global loader instance for external processing (.ert) files
+_ert_loader = ErtLoader()
 
 
 def set_data_dir(path: str) -> None:
@@ -1267,3 +1271,119 @@ def _find_lines_in_text(
             if len(results) >= max_results:
                 break
     return results
+
+
+# --- External processing (.ert) tools ---
+
+
+def init_ert_dirs(dirs: list[str]) -> None:
+    """Configure directories scanned for external processing (.ert) files. Called at startup."""
+    _ert_loader.set_dirs(dirs)
+
+
+def get_ert_loader() -> ErtLoader:
+    """Get the global ErtLoader instance."""
+    return _ert_loader
+
+
+def list_ert_files() -> str:
+    """List all discovered external processing (*.ert) files."""
+    entries = _ert_loader.list_files()
+    if not entries:
+        return "Внешние обработки (*.ert) не найдены."
+    lines = [f"Найдено внешних обработок: {len(entries)}", ""]
+    for e in entries:
+        lines.append(f"  - {e.name}  ({e.path})")
+    return "\n".join(lines)
+
+
+def find_ert_file(name: str) -> str:
+    """Find an external processing file by name."""
+    entry = _ert_loader.find(name)
+    if entry is None:
+        candidates = [e.name for e in _ert_loader.list_files()]
+        similar = _find_similar(name, candidates)
+        msg = f"Внешняя обработка '{name}' не найдена."
+        if similar:
+            msg += f" Похожие: {', '.join(similar)}"
+        return msg
+    return f"Найдена: {entry.name}\nПуть: {entry.path}"
+
+
+def list_ert_procedures(name: str) -> str:
+    """List all procedures and functions declared in an external processing module."""
+    structure = _ert_loader.get_module_structure(name)
+    if structure is None:
+        return f"Обработка '{name}' не найдена или не содержит модуля."
+    if not structure.procedures:
+        return f"В обработке '{name}' процедуры и функции не найдены."
+
+    lines = [f"# Обработка.{name}: процедуры и функции ({len(structure.procedures)})", ""]
+    for p in structure.procedures:
+        params = ", ".join(p.params)
+        exp = " Экспорт" if p.exported else ""
+        lines.append(f"  - {p.kind} {p.name}({params}){exp}  [строки {p.start_line}-{p.end_line}]")
+    return "\n".join(lines)
+
+
+def get_ert_procedure_source(name: str, proc_name: str) -> str:
+    """Get the source text of a specific procedure/function of an external processing module."""
+    structure = _ert_loader.get_module_structure(name)
+    if structure is None:
+        return f"Обработка '{name}' не найдена или не содержит модуля."
+    match = _find_procedure(structure, proc_name)
+    if match is None:
+        return f"Процедура/функция '{proc_name}' не найдена в обработке '{name}'."
+    text = _ert_loader.get_module(name)
+    return _slice_module(text, match.start_line, match.end_line, f"Обработка.{name}.{proc_name}")
+
+
+def get_ert_module(name: str, start_line: int = 0, end_line: int = 0) -> str:
+    """Get the module source code of an external processing file."""
+    text = _ert_loader.get_module(name)
+    if text is None:
+        return f"Обработка '{name}' не найдена или не содержит модуля."
+    return _slice_module(text, start_line, end_line, f"Обработка.{name}")
+
+
+def search_in_ert_modules(query: str, context_lines: int = 0, limit: int = 200) -> str:
+    """Search for text across all external processing (.ert) module source code."""
+    query_lower = query.lower()
+    output_lines: list[str] = []
+    total_matches = 0
+
+    for label, text in _ert_loader.iter_module_entries():
+        remaining = limit - total_matches
+        if remaining <= 0:
+            break
+        matches = _find_lines_in_text(text, query_lower, max_results=remaining, context_lines=context_lines)
+        for line_num, line_text, ctx_block in matches:
+            if context_lines > 0 and ctx_block:
+                for cn, cl in ctx_block:
+                    prefix = "  " if cn != line_num else ""
+                    output_lines.append(f"{label}:{cn}:{prefix}{cl}")
+                output_lines.append("--")
+            else:
+                output_lines.append(f"{label}:{line_num}: {line_text}")
+        total_matches += len(matches)
+
+    if not output_lines:
+        return f"По запросу '{query}' во внешних обработках ничего не найдено."
+
+    lines = [f"Найдено {total_matches} совпадений во внешних обработках по запросу '{query}':", ""]
+    lines.extend(output_lines)
+    return "\n".join(lines)
+
+
+def get_ert_form(name: str) -> str:
+    """Get the form (Dialog Stream) definition of an external processing file."""
+    form = _ert_loader.get_dialog(name)
+    if form is None:
+        return f"Форма обработки '{name}' не найдена."
+    return form
+
+
+def reload_ert_files() -> str:
+    """Rescan configured directories for external processing (*.ert) files."""
+    entries = _ert_loader.rescan()
+    return f"Пересканировано. Найдено внешних обработок: {len(entries)}"

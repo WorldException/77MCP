@@ -216,3 +216,80 @@ def get_procedure_source(proc_name: str, object_type: str = "", name: str = "") 
 def list_enums() -> str:
     """Список всех перечислений конфигурации вместе с их значениями."""
     return tools.list_enums()
+
+
+@mcp.tool()
+def list_ert_files() -> str:
+    """Список найденных внешних обработок (*.ert) в сконфигурированных каталогах."""
+    return tools.list_ert_files()
+
+
+@mcp.tool()
+def find_ert_file(name: str) -> str:
+    """Найти внешнюю обработку по имени (без расширения .ert).
+
+    Args:
+        name: Имя файла обработки без расширения.
+    """
+    return tools.find_ert_file(name)
+
+
+@mcp.tool()
+def list_ert_procedures(name: str) -> str:
+    """Список процедур и функций модуля внешней обработки.
+
+    Args:
+        name: Имя файла обработки без расширения.
+    """
+    return tools.list_ert_procedures(name)
+
+
+@mcp.tool()
+def get_ert_procedure_source(name: str, proc_name: str) -> str:
+    """Исходный код процедуры/функции модуля внешней обработки.
+
+    Args:
+        name: Имя файла обработки без расширения.
+        proc_name: Имя процедуры или функции.
+    """
+    return tools.get_ert_procedure_source(name, proc_name)
+
+
+@mcp.tool()
+def get_ert_module(name: str, start_line: int = 0, end_line: int = 0) -> str:
+    """Исходный код модуля внешней обработки.
+
+    Args:
+        name: Имя файла обработки без расширения .ert.
+        start_line: Начальная строка (1-индексация). 0 = с начала.
+        end_line: Конечная строка включительно. 0 = до конца.
+    """
+    return tools.get_ert_module(name, start_line, end_line)
+
+
+@mcp.tool()
+def search_in_ert_modules(query: str, context_lines: int = 0, limit: int = 200) -> str:
+    """Поиск текста по модулям всех найденных внешних обработок (*.ert).
+
+    Args:
+        query: Строка поиска.
+        context_lines: Сколько строк до и после совпадения показывать.
+        limit: Максимум совпадений в ответе (по всем обработкам).
+    """
+    return tools.search_in_ert_modules(query, context_lines, limit)
+
+
+@mcp.tool()
+def get_ert_form(name: str) -> str:
+    """Описание формы (диалог) внешней обработки.
+
+    Args:
+        name: Имя файла обработки без расширения.
+    """
+    return tools.get_ert_form(name)
+
+
+@mcp.tool()
+def reload_ert_files() -> str:
+    """Пересканировать каталоги внешних обработок (*.ert) на предмет новых/изменённых файлов."""
+    return tools.reload_ert_files()

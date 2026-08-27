@@ -18,6 +18,23 @@ from .server import mcp
 
 DATA_DIR = os.environ.get("MCP_DATA_DIR", "/data")
 MD_FILENAME = "1cv7.md"
+_EXTRA_EXT_DIRS = [d for d in os.environ.get("MCP_EXT_DIRS", "").split(os.pathsep) if d]
+
+
+def _resolve_ext_dirs() -> list[str]:
+    """Resolve directories to scan for external processing (.ert) files.
+
+    Always includes "<DATA_DIR>/ExtForms"; values from MCP_EXT_DIRS are
+    appended (resolved relative to DATA_DIR unless absolute).
+    """
+    base = Path(DATA_DIR)
+    dirs = [str(base / "ExtForms")]
+    for d in _EXTRA_EXT_DIRS:
+        p = Path(d)
+        resolved = str(p if p.is_absolute() else base / p)
+        if resolved not in dirs:
+            dirs.append(resolved)
+    return dirs
 
 _HTML_PAGE_PATH = Path(__file__).parent / "static" / "index.html"
 HTML_PAGE = _HTML_PAGE_PATH.read_text(encoding="utf-8")
@@ -65,9 +82,15 @@ async def handle_upload(request: Request) -> JSONResponse:
 
 async def api_status(request: Request) -> JSONResponse:
     """Return current configuration status as JSON."""
+    server_info = {
+        "base_dir": str(Path(DATA_DIR).resolve()),
+        "ext_dirs": [str(Path(d).resolve()) for d in _resolve_ext_dirs()],
+        "ert_count": len(tools.get_ert_loader().list_files()),
+    }
+
     loader = tools.get_loader()
     if not loader.is_loaded:
-        return JSONResponse({"loaded": False})
+        return JSONResponse({"loaded": False, "server": server_info})
 
     config = loader.config
     coa_count = 1 if config.chart_of_accounts and config.chart_of_accounts.id else 0
@@ -87,6 +110,7 @@ async def api_status(request: Request) -> JSONResponse:
             "calc_vars": len(config.calc_vars),
             "chart_of_accounts": coa_count,
         },
+        "server": server_info,
     })
 
 
@@ -94,6 +118,7 @@ async def startup() -> None:
     """Try to load existing configuration on startup."""
     os.makedirs(DATA_DIR, exist_ok=True)
     tools.set_data_dir(DATA_DIR)
+    tools.init_ert_dirs(_resolve_ext_dirs())
     md_path = os.path.join(DATA_DIR, MD_FILENAME)
     if os.path.exists(md_path):
         try:
