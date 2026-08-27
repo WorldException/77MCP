@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import traceback
 
 from contextlib import asynccontextmanager
@@ -16,7 +17,13 @@ from starlette.routing import Mount, Route
 from . import tools
 from .server import mcp
 
-DATA_DIR = os.environ.get("MCP_DATA_DIR", "/data")
+# MCP_BASEPATH: explicit, existing, read-only configuration directory.
+# MCP_DATA_DIR: writable staging directory for uploads, used only when
+# MCP_BASEPATH is not set (defaults to a temp folder, never a config dir).
+BASEPATH = os.environ.get("MCP_BASEPATH")
+DATA_DIR = os.environ.get("MCP_DATA_DIR", os.path.join(tempfile.gettempdir(), "mcp_1c77"))
+CONFIG_DIR = BASEPATH if BASEPATH else DATA_DIR
+READONLY = bool(BASEPATH)
 MD_FILENAME = "1cv7.md"
 _EXTRA_EXT_DIRS = [d for d in os.environ.get("MCP_EXT_DIRS", "").split(os.pathsep) if d]
 
@@ -24,10 +31,10 @@ _EXTRA_EXT_DIRS = [d for d in os.environ.get("MCP_EXT_DIRS", "").split(os.pathse
 def _resolve_ext_dirs() -> list[str]:
     """Resolve directories to scan for external processing (.ert) files.
 
-    Always includes "<DATA_DIR>/ExtForms"; values from MCP_EXT_DIRS are
-    appended (resolved relative to DATA_DIR unless absolute).
+    Always includes "<CONFIG_DIR>/ExtForms"; values from MCP_EXT_DIRS are
+    appended (resolved relative to CONFIG_DIR unless absolute).
     """
-    base = Path(DATA_DIR)
+    base = Path(CONFIG_DIR)
     dirs = [str(base / "ExtForms")]
     for d in _EXTRA_EXT_DIRS:
         p = Path(d)
@@ -48,6 +55,12 @@ async def upload_page(request: Request) -> HTMLResponse:
 
 async def handle_upload(request: Request) -> JSONResponse:
     """Handle file upload or reload of existing file."""
+    if READONLY:
+        return JSONResponse({
+            "ok": False,
+            "error": "Upload отключён: сервер запущен с явным --basepath (доступно только чтение).",
+        })
+
     os.makedirs(DATA_DIR, exist_ok=True)
     md_path = os.path.join(DATA_DIR, MD_FILENAME)
 
@@ -83,9 +96,10 @@ async def handle_upload(request: Request) -> JSONResponse:
 async def api_status(request: Request) -> JSONResponse:
     """Return current configuration status as JSON."""
     server_info = {
-        "base_dir": str(Path(DATA_DIR).resolve()),
+        "base_dir": str(Path(CONFIG_DIR).resolve()),
         "ext_dirs": [str(Path(d).resolve()) for d in _resolve_ext_dirs()],
         "ert_count": len(tools.get_ert_loader().list_files()),
+        "readonly": READONLY,
     }
 
     loader = tools.get_loader()
@@ -116,10 +130,14 @@ async def api_status(request: Request) -> JSONResponse:
 
 async def startup() -> None:
     """Try to load existing configuration on startup."""
-    os.makedirs(DATA_DIR, exist_ok=True)
-    tools.set_data_dir(DATA_DIR)
+    if READONLY:
+        if not os.path.isdir(CONFIG_DIR):
+            print(f"MCP_BASEPATH '{CONFIG_DIR}' does not exist or is not a directory.")
+    else:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+    tools.set_data_dir(CONFIG_DIR)
     tools.init_ert_dirs(_resolve_ext_dirs())
-    md_path = os.path.join(DATA_DIR, MD_FILENAME)
+    md_path = os.path.join(CONFIG_DIR, MD_FILENAME)
     if os.path.exists(md_path):
         try:
             tools.init(md_path)

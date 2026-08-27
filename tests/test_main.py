@@ -9,7 +9,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def clean_env():
     saved = {
-        k: os.environ.pop(k, None) for k in ("MCP_DATA_DIR", "MCP_EXT_DIRS")
+        k: os.environ.pop(k, None) for k in ("MCP_BASEPATH", "MCP_DATA_DIR", "MCP_EXT_DIRS")
     }
     yield
     for k, v in saved.items():
@@ -29,7 +29,8 @@ def _run_main(argv):
 
 def test_basepath_sets_env():
     _run_main(["--basepath", "/some/dir"])
-    assert os.environ["MCP_DATA_DIR"] == "/some/dir"
+    assert os.environ["MCP_BASEPATH"] == "/some/dir"
+    assert "MCP_DATA_DIR" not in os.environ
 
 
 def test_exts_sets_env():
@@ -39,11 +40,12 @@ def test_exts_sets_env():
 
 def test_no_args_leaves_env_unset():
     _run_main([])
+    assert "MCP_BASEPATH" not in os.environ
     assert "MCP_DATA_DIR" not in os.environ
     assert "MCP_EXT_DIRS" not in os.environ
 
 
 def test_basepath_and_exts_together():
     _run_main(["--basepath", "/data2", "--exts", "ExtForms2"])
-    assert os.environ["MCP_DATA_DIR"] == "/data2"
+    assert os.environ["MCP_BASEPATH"] == "/data2"
     assert os.environ["MCP_EXT_DIRS"] == "ExtForms2"

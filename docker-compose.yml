@@ -3,6 +3,8 @@ services:
     build: .
     ports:
       - "8099:8099"
+    environment:
+      - MCP_DATA_DIR=/data
     volumes:
       - md-data:/data
 
