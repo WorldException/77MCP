@@ -20,6 +20,7 @@ _PROC_RE = re.compile(
 _END_PROC_RE = re.compile(r'^\s*(КонецПроцедуры|EndProcedure)\b', re.IGNORECASE)
 _END_FUNC_RE = re.compile(r'^\s*(КонецФункции|EndFunction)\b', re.IGNORECASE)
 _VAR_RE = re.compile(r'^\s*(Перем|Var)\s+(.+)', re.IGNORECASE)
+_FORWARD_DECL_RE = re.compile(r'\bДалее\b', re.IGNORECASE)
 
 
 def _is_function(keyword: str) -> bool:
@@ -85,6 +86,10 @@ def parse_module_structure(text: str) -> ModuleStructure:
         proc_m = _PROC_RE.match(line)
         if proc_m:
             keyword, name, params_raw, export = proc_m.groups()
+            if _FORWARD_DECL_RE.search(line[proc_m.end():]):
+                # Forward declaration ("Процедура Имя(...) Далее") — no body here,
+                # the real definition with a matching КонецПроцедуры appears later.
+                continue
             in_proc = ModuleProcedure(
                 kind="Функция" if _is_function(keyword) else "Процедура",
                 name=name,
