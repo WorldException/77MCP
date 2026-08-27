@@ -173,3 +173,46 @@ def resolve_id(object_id: str) -> str:
         object_id: Внутренний идентификатор объекта (числовая строка)
     """
     return tools.resolve_id(object_id)
+
+
+@mcp.tool()
+def list_module_procedures(object_type: str = "", name: str = "") -> str:
+    """Список процедур и функций модуля (с параметрами, Экспорт, диапазоном строк).
+
+    Args:
+        object_type: Тип объекта (Документ, Справочник, Отчёт, ВидРасчёта).
+                     Пустая строка (вместе с пустым name) или "Глобальный" — глобальный модуль.
+        name: Имя объекта. Не требуется для глобального модуля.
+    """
+    return tools.list_module_procedures(object_type, name)
+
+
+@mcp.tool()
+def get_module_variables(object_type: str = "", name: str = "") -> str:
+    """Список переменных модульного уровня (Перем/Var), объявленных в модуле.
+
+    Args:
+        object_type: Тип объекта (Документ, Справочник, Отчёт, ВидРасчёта).
+                     Пустая строка (вместе с пустым name) или "Глобальный" — глобальный модуль.
+        name: Имя объекта. Не требуется для глобального модуля.
+    """
+    return tools.get_module_variables(object_type, name)
+
+
+@mcp.tool()
+def get_procedure_source(proc_name: str, object_type: str = "", name: str = "") -> str:
+    """Исходный текст конкретной процедуры или функции по её имени.
+
+    Args:
+        proc_name: Имя процедуры или функции.
+        object_type: Тип объекта модуля. Если не указан вместе с name — поиск
+                     ведётся по всем модулям конфигурации (включая глобальный).
+        name: Имя объекта модуля.
+    """
+    return tools.get_procedure_source(proc_name, object_type, name)
+
+
+@mcp.tool()
+def list_enums() -> str:
+    """Список всех перечислений конфигурации вместе с их значениями."""
+    return tools.list_enums()

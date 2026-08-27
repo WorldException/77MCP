@@ -11,6 +11,7 @@ import olefile
 
 from . import ole_reader
 from .bracket_parser import BracketNode, parse
+from .bsl_parser import parse_module_structure
 from .models import (
     AccountAttribute,
     Attribute,
@@ -24,6 +25,7 @@ from .models import (
     Enum,
     EnumValue,
     FormInfo,
+    ModuleStructure,
     Register,
     Report,
 )
@@ -63,6 +65,7 @@ class ConfigurationLoader:
         self._ole: olefile.OleFileIO | None = None
         self._file_path: str = ""
         self._module_cache: dict[str, str] = {}
+        self._module_structure_cache: dict[str, ModuleStructure] = {}
         self._modules_index: list[dict[str, str]] | None = None
         self._all_modules_loaded: bool = False
 
@@ -91,6 +94,7 @@ class ConfigurationLoader:
             self._ole = None
         self._config = None
         self._module_cache.clear()
+        self._module_structure_cache.clear()
         self._modules_index = None
         self._all_modules_loaded = False
 
@@ -141,6 +145,30 @@ class ConfigurationLoader:
             return text
         except Exception:
             return None
+
+    def get_module_structure(self, obj_type: str, obj_name: str) -> ModuleStructure | None:
+        """Get the parsed structure (variables, procedures/functions) of an object module (cached)."""
+        cache_key = f"{obj_type}::{obj_name}"
+        if cache_key in self._module_structure_cache:
+            return self._module_structure_cache[cache_key]
+        text = self.get_module(obj_type, obj_name)
+        if text is None:
+            return None
+        structure = parse_module_structure(text)
+        self._module_structure_cache[cache_key] = structure
+        return structure
+
+    def get_global_module_structure(self) -> ModuleStructure | None:
+        """Get the parsed structure of the global module (cached)."""
+        cache_key = "__global__"
+        if cache_key in self._module_structure_cache:
+            return self._module_structure_cache[cache_key]
+        text = self.get_global_module()
+        if text is None:
+            return None
+        structure = parse_module_structure(text)
+        self._module_structure_cache[cache_key] = structure
+        return structure
 
     def get_form(self, obj_type: str, obj_name: str) -> str | None:
         """Get the form definition (Dialog Stream) for an object."""
