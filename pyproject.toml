@@ -14,12 +14,15 @@ dependencies = [
     "uvicorn>=0.30",
     "python-multipart>=0.0.9",
     "starlette>=0.37",
-    "fastmcp>=3.4.7",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+]
+build = [
+    "pyinstaller>=6.11",
+    "pyinstaller-hooks-contrib>=2024.11",
 ]
 
 [tool.setuptools.packages.find]

@@ -13,3 +13,4 @@ venv/
 1cv7.md
 .env
 .claude/
+*.ert
