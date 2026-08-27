@@ -82,6 +82,12 @@ claude mcp add --transport sse 1c77-metadata http://localhost:8080/sse
 | `search_field` | Найти все объекты, содержащие реквизит с данным именем |
 | `get_objects_batch` | Пакетное получение метаданных нескольких объектов за один вызов |
 | `resolve_id` | Определить тип и имя объекта по его внутреннему ID |
+| `list_module_procedures` | Список процедур и функций модуля (объектного или глобального) |
+| `get_module_variables` | Список переменных модульного уровня (Перем/Var) модуля |
+| `get_procedure_source` | Исходный текст процедуры/функции по имени (поиск по всем модулям, если модуль не указан) |
+| `list_enums` | Список всех перечислений конфигурации вместе с их значениями |
+
+`list_objects` и `get_object` также показывают SQL/DBF-имена таблиц и полей 1С 7.7 (`SC/DH/DT/RG/RA/SP/CN` + id), вычисленные по общеизвестному соглашению именования платформы.
 
 ### Примеры использования
 
@@ -127,6 +133,34 @@ resolve_id(object_id="552")
 # Проверить запрос на ошибки в путях реквизитов
 validate_query(query_text="SELECT Документ.Товар.Артикул FROM Документ.РасходнаяНакладная AS Документ")
 ```
+
+## Windows executable
+
+Проект можно собрать в самостоятельный `mcp-1c77.exe`, не требующий установленного Python.
+
+### Готовый exe
+
+Скачайте `mcp-1c77.exe` из [GitHub Releases](https://github.com/ivanarama/77MCP/releases) (если собран по тегу `vX.Y.Z`) или из артефактов последнего запуска workflow **Build Windows executable** во вкладке Actions.
+
+### Сборка локально (на Windows)
+
+Требуется [uv](https://docs.astral.sh/uv/).
+
+```powershell
+.\packaging\build_windows.ps1
+```
+
+Результат — `dist\mcp-1c77.exe`.
+
+> PyInstaller не кросс-компилирует между ОС — сборку `.exe` нужно выполнять на Windows (локально или в CI на `windows-latest`), сборка из Linux/macOS не даст рабочий Windows-бинарник.
+
+### Запуск
+
+```powershell
+mcp-1c77.exe --basepath C:\path\to\data
+```
+
+Сервер запустится на `http://localhost:8099`. Флаги `--basepath`/`--exts` — те же, что и при запуске `python -m mcp_1c77`. При первом запуске Windows Defender SmartScreen может предупредить о неподписанном exe — это ожидаемо для несертифицированной сборки.
 
 ## Docker
 

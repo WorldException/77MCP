@@ -8,12 +8,18 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from pathlib import Path
 
+from . import sql_naming
+from .ert_loader import ErtLoader
 from .metadata import ConfigurationLoader
+from .models import ModuleProcedure, ModuleStructure
 
 # Global loader instance shared across all tool calls
 _loader = ConfigurationLoader()
 _md_path: str = ""
 _data_dir: Path | None = None
+
+# Global loader instance for external processing (.ert) files
+_ert_loader = ErtLoader()
 
 
 def set_data_dir(path: str) -> None:
@@ -136,7 +142,8 @@ def list_objects(object_type: str = "") -> str:
             lines.append(f"## Справочники ({len(config.catalogs)})")
             for obj in config.catalogs:
                 comment = f" — {obj.comment}" if obj.comment else ""
-                lines.append(f"  - {obj.name}{comment}")
+                sql = f" [SQL: {sql_naming.catalog_table(obj.id)}]" if obj.id else ""
+                lines.append(f"  - {obj.name}{comment}{sql}")
             lines.append("")
 
     if _should_include("документ") or _should_include("document"):
@@ -144,7 +151,12 @@ def list_objects(object_type: str = "") -> str:
             lines.append(f"## Документы ({len(config.documents)})")
             for obj in config.documents:
                 comment = f" — {obj.comment}" if obj.comment else ""
-                lines.append(f"  - {obj.name}{comment}")
+                sql = (
+                    f" [SQL: {sql_naming.document_header_table(obj.id)}/"
+                    f"{sql_naming.document_tabular_table(obj.id)}]"
+                    if obj.id else ""
+                )
+                lines.append(f"  - {obj.name}{comment}{sql}")
             lines.append("")
 
     if _should_include("регистр") or _should_include("register"):
@@ -152,7 +164,12 @@ def list_objects(object_type: str = "") -> str:
             lines.append(f"## Регистры ({len(config.registers)})")
             for obj in config.registers:
                 comment = f" — {obj.comment}" if obj.comment else ""
-                lines.append(f"  - {obj.name}{comment}")
+                sql = (
+                    f" [SQL: {sql_naming.register_totals_table(obj.id)}/"
+                    f"{sql_naming.register_movements_table(obj.id)}]"
+                    if obj.id else ""
+                )
+                lines.append(f"  - {obj.name}{comment}{sql}")
             lines.append("")
 
     if _should_include("перечисление") or _should_include("enum"):
@@ -184,7 +201,8 @@ def list_objects(object_type: str = "") -> str:
             lines.append(f"## Константы ({len(config.constants)})")
             for obj in config.constants:
                 comment = f" — {obj.comment}" if obj.comment else ""
-                lines.append(f"  - {obj.name}: {obj.type}{comment}")
+                sql = f" [SQL: {sql_naming.constant_field(obj.id)} в _1SCONST]" if obj.id else ""
+                lines.append(f"  - {obj.name}: {obj.type}{comment}{sql}")
             lines.append("")
 
     if _should_include("видрасчёта") or _should_include("видрасчета") or _should_include("calcvar"):
@@ -850,6 +868,166 @@ def resolve_id(object_id: str) -> str:
     return f"ID '{object_id}' -> {type_name}.{name}"
 
 
+# --- Module structure tools (procedures/functions/variables) ---
+
+
+def _resolve_single_module_structure(
+    object_type: str, name: str
+) -> tuple[ModuleStructure | None, str, str | None]:
+    """Resolve a single module's parsed structure.
+
+    Empty object_type and name together mean the global module; explicit
+    "глобальный"/"global" also means the global module. Otherwise both
+    object_type and name must be given. Returns (structure, label, error).
+    """
+    if not object_type and not name:
+        structure = _loader.get_global_module_structure()
+        if structure is None:
+            return None, "ГлобальныйМодуль", "Глобальный модуль не найден в конфигурации."
+        return structure, "ГлобальныйМодуль", None
+
+    if object_type.lower() in ("глобальный", "global"):
+        structure = _loader.get_global_module_structure()
+        if structure is None:
+            return None, "ГлобальныйМодуль", "Глобальный модуль не найден в конфигурации."
+        return structure, "ГлобальныйМодуль", None
+
+    if not object_type or not name:
+        return (
+            None,
+            "",
+            "Укажите object_type и name вместе, либо оставьте оба параметра "
+            "пустыми для обращения к глобальному модулю.",
+        )
+
+    structure = _loader.get_module_structure(object_type, name)
+    label = f"{object_type}.{name}"
+    if structure is None:
+        return None, label, f"Модуль объекта '{label}' не найден."
+    return structure, label, None
+
+
+def list_module_procedures(object_type: str = "", name: str = "") -> str:
+    """List all procedures and functions declared in a module."""
+    if err := _ensure_loaded():
+        return err
+    structure, label, error = _resolve_single_module_structure(object_type, name)
+    if error:
+        return error
+    if not structure.procedures:
+        return f"В модуле '{label}' процедуры и функции не найдены."
+
+    lines = [f"# {label}: процедуры и функции ({len(structure.procedures)})", ""]
+    for p in structure.procedures:
+        params = ", ".join(p.params)
+        exp = " Экспорт" if p.exported else ""
+        lines.append(f"  - {p.kind} {p.name}({params}){exp}  [строки {p.start_line}-{p.end_line}]")
+    return "\n".join(lines)
+
+
+def get_module_variables(object_type: str = "", name: str = "") -> str:
+    """List module-level variables (Перем/Var) declared in a module."""
+    if err := _ensure_loaded():
+        return err
+    structure, label, error = _resolve_single_module_structure(object_type, name)
+    if error:
+        return error
+    if not structure.variables:
+        return f"В модуле '{label}' переменные модуля не найдены."
+
+    lines = [f"# {label}: переменные модуля ({len(structure.variables)})", ""]
+    for v in structure.variables:
+        exp = " Экспорт" if v.exported else ""
+        lines.append(f"  - {v.name}{exp}  [строка {v.line}]")
+    return "\n".join(lines)
+
+
+def _find_procedure(structure: ModuleStructure, proc_name: str) -> ModuleProcedure | None:
+    proc_name_lower = proc_name.lower()
+    for p in structure.procedures:
+        if p.name.lower() == proc_name_lower:
+            return p
+    return None
+
+
+def get_procedure_source(proc_name: str, object_type: str = "", name: str = "") -> str:
+    """Get the source text of a specific procedure or function by name.
+
+    If object_type/name are omitted, searches across all modules in the
+    configuration (including the global module).
+    """
+    if err := _ensure_loaded():
+        return err
+
+    if object_type or name:
+        structure, label, error = _resolve_single_module_structure(object_type, name)
+        if error:
+            return error
+        match = _find_procedure(structure, proc_name)
+        if match is None:
+            return f"Процедура/функция '{proc_name}' не найдена в модуле '{label}'."
+        text = (
+            _loader.get_global_module()
+            if label == "ГлобальныйМодуль"
+            else _loader.get_module(object_type, name)
+        )
+        return _slice_module(text, match.start_line, match.end_line, f"{label}.{proc_name}")
+
+    found: list[tuple[str, ModuleProcedure]] = []
+    for m in _loader.list_modules():
+        if m["kind"] == "global":
+            structure = _loader.get_global_module_structure()
+            label = "ГлобальныйМодуль"
+        else:
+            structure = _loader.get_module_structure(m["type"], m["name"])
+            label = f"{m['type']}.{m['name']}"
+        if structure is None:
+            continue
+        match = _find_procedure(structure, proc_name)
+        if match is not None:
+            found.append((label, match))
+
+    if not found:
+        return f"Процедура/функция '{proc_name}' не найдена ни в одном модуле."
+
+    if len(found) == 1:
+        label, match = found[0]
+        if label == "ГлобальныйМодуль":
+            text = _loader.get_global_module()
+        else:
+            obj_type, obj_name = label.split(".", 1)
+            text = _loader.get_module(obj_type, obj_name)
+        return _slice_module(text, match.start_line, match.end_line, f"{label}.{proc_name}")
+
+    lines = [f"Найдено {len(found)} совпадений для '{proc_name}':", ""]
+    for label, match in found:
+        lines.append(f"  - {label}  [строки {match.start_line}-{match.end_line}]")
+    lines.append("\nУточните object_type и name для получения исходника конкретной процедуры.")
+    return "\n".join(lines)
+
+
+def list_enums() -> str:
+    """List all enumerations with their values."""
+    if err := _ensure_loaded():
+        return err
+    config = _loader.config
+    if not config.enums:
+        return "Перечисления не найдены в конфигурации."
+
+    lines = [f"# Перечисления ({len(config.enums)})", ""]
+    for e in config.enums:
+        comment = f" — {e.comment}" if e.comment else ""
+        lines.append(f"## {e.name}{comment}")
+        if e.values:
+            for v in e.values:
+                vcomment = f" — {v.comment}" if v.comment else ""
+                lines.append(f"  - {v.name}{vcomment}")
+        else:
+            lines.append("  (значений нет)")
+        lines.append("")
+    return "\n".join(lines)
+
+
 # --- Formatting helpers ---
 
 
@@ -857,6 +1035,7 @@ def _format_catalog(obj) -> str:
     lines = [
         f"# Справочник: {obj.name}",
         f"ID: {obj.id}",
+        f"SQL-таблица: {sql_naming.catalog_table(obj.id)} ({sql_naming.NOTE})",
     ]
     if obj.comment:
         lines.append(f"Комментарий: {obj.comment}")
@@ -865,14 +1044,17 @@ def _format_catalog(obj) -> str:
 
     lines.append("\n## Системные реквизиты (всегда доступны)")
     for fname, ftype in _CATALOG_SYSTEM_FIELDS.items():
-        lines.append(f"  - {fname}: {ftype}")
+        sql_field = sql_naming.CATALOG_SQL_SYSTEM_FIELDS.get(fname, "")
+        sql = f" [SQL: {sql_field}]" if sql_field else ""
+        lines.append(f"  - {fname}: {ftype}{sql}")
 
     if obj.attributes:
         lines.append(f"\n## Реквизиты ({len(obj.attributes)})")
         for a in obj.attributes:
             ref = _format_ref(a)
             periodic = "  [периодический]" if a.periodic else ""
-            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){ref}{periodic}")
+            sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
+            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){ref}{periodic}{sql}")
             if a.comment:
                 lines.append(f"    {a.comment}")
 
@@ -888,6 +1070,8 @@ def _format_document(obj) -> str:
     lines = [
         f"# Документ: {obj.name}",
         f"ID: {obj.id}",
+        f"SQL-таблица шапки: {sql_naming.document_header_table(obj.id)} ({sql_naming.NOTE})",
+        f"SQL-таблица табличной части: {sql_naming.document_tabular_table(obj.id)} ({sql_naming.NOTE})",
     ]
     if obj.comment:
         lines.append(f"Комментарий: {obj.comment}")
@@ -896,13 +1080,16 @@ def _format_document(obj) -> str:
 
     lines.append("\n## Системные реквизиты (всегда доступны в запросах 7.7)")
     for fname, ftype in _DOCUMENT_SYSTEM_FIELDS.items():
-        lines.append(f"  - {fname}: {ftype}")
+        sql_field = sql_naming.DOCUMENT_SQL_SYSTEM_FIELDS.get(fname, "")
+        sql = f" [SQL: {sql_field}]" if sql_field else ""
+        lines.append(f"  - {fname}: {ftype}{sql}")
 
     if obj.head_attributes:
         lines.append(f"\n## Реквизиты шапки ({len(obj.head_attributes)})")
         for a in obj.head_attributes:
             ref = _format_ref(a)
-            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){ref}")
+            sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
+            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){ref}{sql}")
             if a.comment:
                 lines.append(f"    {a.comment}")
 
@@ -910,7 +1097,8 @@ def _format_document(obj) -> str:
         lines.append(f"\n## Табличная часть ({len(obj.table_attributes)})")
         for a in obj.table_attributes:
             ref = _format_ref(a)
-            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){ref}")
+            sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
+            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){ref}{sql}")
             if a.comment:
                 lines.append(f"    {a.comment}")
 
@@ -921,6 +1109,8 @@ def _format_register(obj) -> str:
     lines = [
         f"# Регистр: {obj.name}",
         f"ID: {obj.id}",
+        f"SQL-таблица итогов: {sql_naming.register_totals_table(obj.id)} ({sql_naming.NOTE})",
+        f"SQL-таблица движений: {sql_naming.register_movements_table(obj.id)} ({sql_naming.NOTE})",
     ]
     if obj.comment:
         lines.append(f"Комментарий: {obj.comment}")
@@ -930,17 +1120,20 @@ def _format_register(obj) -> str:
     if obj.dimensions:
         lines.append(f"\n## Измерения ({len(obj.dimensions)})")
         for a in obj.dimensions:
-            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision})")
+            sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
+            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){sql}")
 
     if obj.resources:
         lines.append(f"\n## Ресурсы ({len(obj.resources)})")
         for a in obj.resources:
-            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision})")
+            sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
+            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){sql}")
 
     if obj.attributes:
         lines.append(f"\n## Реквизиты ({len(obj.attributes)})")
         for a in obj.attributes:
-            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision})")
+            sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
+            lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){sql}")
 
     return "\n".join(lines)
 
@@ -949,6 +1142,7 @@ def _format_enum(obj) -> str:
     lines = [
         f"# Перечисление: {obj.name}",
         f"ID: {obj.id}",
+        "SQL: нет прямого SQL-представления (значение кодируется в самом ссылочном поле)",
     ]
     if obj.comment:
         lines.append(f"Комментарий: {obj.comment}")
@@ -968,6 +1162,7 @@ def _format_report(obj) -> str:
     lines = [
         f"# Отчёт/Обработка: {obj.name}",
         f"ID: {obj.id}",
+        "SQL: нет прямого SQL-представления",
     ]
     if obj.comment:
         lines.append(f"Комментарий: {obj.comment}")
@@ -980,6 +1175,7 @@ def _format_journal(obj) -> str:
     lines = [
         f"# Журнал: {obj.name}",
         f"ID: {obj.id}",
+        "SQL: нет прямого SQL-представления (документы журнала хранятся в общем _1SJOURN)",
     ]
     if obj.comment:
         lines.append(f"Комментарий: {obj.comment}")
@@ -997,6 +1193,7 @@ def _format_constant(obj) -> str:
         f"# Константа: {obj.name}",
         f"ID: {obj.id}",
         f"Тип: {obj.type}({obj.length}.{obj.precision})",
+        f"SQL-поле: {sql_naming.constant_field(obj.id)} в _1SCONST ({sql_naming.NOTE})",
     ]
     if obj.comment:
         lines.append(f"Комментарий: {obj.comment}")
@@ -1009,6 +1206,7 @@ def _format_chart_of_accounts(obj) -> str:
     lines = [
         f"# План счетов: {obj.name or obj.id}",
         f"ID: {obj.id}",
+        "SQL: нет прямого SQL-представления",
     ]
     if obj.comment:
         lines.append(f"Комментарий: {obj.comment}")
@@ -1073,3 +1271,119 @@ def _find_lines_in_text(
             if len(results) >= max_results:
                 break
     return results
+
+
+# --- External processing (.ert) tools ---
+
+
+def init_ert_dirs(dirs: list[str]) -> None:
+    """Configure directories scanned for external processing (.ert) files. Called at startup."""
+    _ert_loader.set_dirs(dirs)
+
+
+def get_ert_loader() -> ErtLoader:
+    """Get the global ErtLoader instance."""
+    return _ert_loader
+
+
+def list_ert_files() -> str:
+    """List all discovered external processing (*.ert) files."""
+    entries = _ert_loader.list_files()
+    if not entries:
+        return "Внешние обработки (*.ert) не найдены."
+    lines = [f"Найдено внешних обработок: {len(entries)}", ""]
+    for e in entries:
+        lines.append(f"  - {e.name}  ({e.path})")
+    return "\n".join(lines)
+
+
+def find_ert_file(name: str) -> str:
+    """Find an external processing file by name."""
+    entry = _ert_loader.find(name)
+    if entry is None:
+        candidates = [e.name for e in _ert_loader.list_files()]
+        similar = _find_similar(name, candidates)
+        msg = f"Внешняя обработка '{name}' не найдена."
+        if similar:
+            msg += f" Похожие: {', '.join(similar)}"
+        return msg
+    return f"Найдена: {entry.name}\nПуть: {entry.path}"
+
+
+def list_ert_procedures(name: str) -> str:
+    """List all procedures and functions declared in an external processing module."""
+    structure = _ert_loader.get_module_structure(name)
+    if structure is None:
+        return f"Обработка '{name}' не найдена или не содержит модуля."
+    if not structure.procedures:
+        return f"В обработке '{name}' процедуры и функции не найдены."
+
+    lines = [f"# Обработка.{name}: процедуры и функции ({len(structure.procedures)})", ""]
+    for p in structure.procedures:
+        params = ", ".join(p.params)
+        exp = " Экспорт" if p.exported else ""
+        lines.append(f"  - {p.kind} {p.name}({params}){exp}  [строки {p.start_line}-{p.end_line}]")
+    return "\n".join(lines)
+
+
+def get_ert_procedure_source(name: str, proc_name: str) -> str:
+    """Get the source text of a specific procedure/function of an external processing module."""
+    structure = _ert_loader.get_module_structure(name)
+    if structure is None:
+        return f"Обработка '{name}' не найдена или не содержит модуля."
+    match = _find_procedure(structure, proc_name)
+    if match is None:
+        return f"Процедура/функция '{proc_name}' не найдена в обработке '{name}'."
+    text = _ert_loader.get_module(name)
+    return _slice_module(text, match.start_line, match.end_line, f"Обработка.{name}.{proc_name}")
+
+
+def get_ert_module(name: str, start_line: int = 0, end_line: int = 0) -> str:
+    """Get the module source code of an external processing file."""
+    text = _ert_loader.get_module(name)
+    if text is None:
+        return f"Обработка '{name}' не найдена или не содержит модуля."
+    return _slice_module(text, start_line, end_line, f"Обработка.{name}")
+
+
+def search_in_ert_modules(query: str, context_lines: int = 0, limit: int = 200) -> str:
+    """Search for text across all external processing (.ert) module source code."""
+    query_lower = query.lower()
+    output_lines: list[str] = []
+    total_matches = 0
+
+    for label, text in _ert_loader.iter_module_entries():
+        remaining = limit - total_matches
+        if remaining <= 0:
+            break
+        matches = _find_lines_in_text(text, query_lower, max_results=remaining, context_lines=context_lines)
+        for line_num, line_text, ctx_block in matches:
+            if context_lines > 0 and ctx_block:
+                for cn, cl in ctx_block:
+                    prefix = "  " if cn != line_num else ""
+                    output_lines.append(f"{label}:{cn}:{prefix}{cl}")
+                output_lines.append("--")
+            else:
+                output_lines.append(f"{label}:{line_num}: {line_text}")
+        total_matches += len(matches)
+
+    if not output_lines:
+        return f"По запросу '{query}' во внешних обработках ничего не найдено."
+
+    lines = [f"Найдено {total_matches} совпадений во внешних обработках по запросу '{query}':", ""]
+    lines.extend(output_lines)
+    return "\n".join(lines)
+
+
+def get_ert_form(name: str) -> str:
+    """Get the form (Dialog Stream) definition of an external processing file."""
+    form = _ert_loader.get_dialog(name)
+    if form is None:
+        return f"Форма обработки '{name}' не найдена."
+    return form
+
+
+def reload_ert_files() -> str:
+    """Rescan configured directories for external processing (*.ert) files."""
+    entries = _ert_loader.rescan()
+    return f"Пересканировано. Найдено внешних обработок: {len(entries)}"

@@ -162,6 +162,32 @@ class CalcVar(BaseModel):
     comment: str = ""
 
 
+class ModuleVariable(BaseModel):
+    """A module-level variable declaration (Перем/Var)."""
+
+    name: str = ""
+    exported: bool = False
+    line: int = 0
+
+
+class ModuleProcedure(BaseModel):
+    """A procedure or function declared in a module."""
+
+    kind: str = ""  # "Процедура" or "Функция"
+    name: str = ""
+    params: list[str] = Field(default_factory=list)
+    exported: bool = False
+    start_line: int = 0
+    end_line: int = 0
+
+
+class ModuleStructure(BaseModel):
+    """Parsed structure of a module: its top-level variables and procedures/functions."""
+
+    variables: list[ModuleVariable] = Field(default_factory=list)
+    procedures: list[ModuleProcedure] = Field(default_factory=list)
+
+
 class Configuration(BaseModel):
     """Root configuration object representing a parsed 1Cv7.MD file."""
 

@@ -90,6 +90,22 @@ def get_object_streams(ole: olefile.OleFileIO, container: str, object_id: str) -
     return result
 
 
+def get_root_object_streams(ole: olefile.OleFileIO) -> dict[str, str]:
+    """Get stream paths for a standalone top-level object file (e.g. .ert).
+
+    Unlike get_object_streams(), no container/object_id prefix is used —
+    streams like 'Dialog Stream' and 'MD Programm text' sit directly at
+    the OLE2 root in single-object files such as external processings (.ert).
+    """
+    names = {"/".join(entry) for entry in ole.listdir()}
+    result: dict[str, str] = {}
+    if "Dialog Stream" in names:
+        result["dialog"] = "Dialog Stream"
+    if "MD Programm text" in names:
+        result["module"] = "MD Programm text"
+    return result
+
+
 def find_global_module_stream(ole: olefile.OleFileIO) -> str | None:
     """Find the global module stream path in the OLE container.
 

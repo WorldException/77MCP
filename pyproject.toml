@@ -20,6 +20,10 @@ dependencies = [
 dev = [
     "pytest>=7.0",
 ]
+build = [
+    "pyinstaller>=6.11",
+    "pyinstaller-hooks-contrib>=2024.11",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
