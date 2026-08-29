@@ -8,9 +8,11 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from pathlib import Path
 
-from . import sql_naming
+from . import ert_writer, sql_naming
+from .dialog_model import DialogControl
+from .dialog_parser import default_dialog, parse_dialog, serialize_dialog
 from .ert_loader import ErtLoader
-from .metadata import ConfigurationLoader
+from .metadata import TYPE_CODES, ConfigurationLoader
 from .models import ModuleProcedure, ModuleStructure
 
 # Global loader instance shared across all tool calls
@@ -20,6 +22,9 @@ _data_dir: Path | None = None
 
 # Global loader instance for external processing (.ert) files
 _ert_loader = ErtLoader()
+
+# Optional writable directory for creating/editing .ert files via MCP.
+_edit_path: Path | None = None
 
 
 def set_data_dir(path: str) -> None:
@@ -1387,3 +1392,212 @@ def reload_ert_files() -> str:
     """Rescan configured directories for external processing (*.ert) files."""
     entries = _ert_loader.rescan()
     return f"Пересканировано. Найдено внешних обработок: {len(entries)}"
+
+
+def list_ert_dialog_controls(name: str) -> str:
+    """List the parsed controls of an external processing's form (dialog)."""
+    text = _ert_loader.get_dialog(name)
+    if text is None:
+        return f"Форма обработки '{name}' не найдена."
+    dialog = parse_dialog(text)
+    lines = [
+        f"# Обработка.{name}: форма \"{dialog.frame.caption.strip()}\" "
+        f"({dialog.frame.width}x{dialog.frame.height}), элементов: {len(dialog.controls)}",
+        "",
+    ]
+    if not dialog.controls:
+        lines.append("  (элементов управления нет)")
+    for c in dialog.controls:
+        parts = [f"id={c.id}", c.control_class]
+        if c.caption:
+            parts.append(f'"{c.caption}"')
+        parts.append(f"[{c.x},{c.y},{c.width},{c.height}]")
+        if c.bound_attribute:
+            type_name = TYPE_CODES.get(c.type_code, c.type_code)
+            parts.append(f"-> {c.bound_attribute} ({type_name})")
+        if c.action:
+            parts.append(f"действие: {c.action}")
+        lines.append("  - " + "  ".join(parts))
+    return "\n".join(lines)
+
+
+# --- External processing (.ert) write tools (edit-path only) ---
+
+
+_EDIT_DISABLED_MSG = (
+    "Редактирование обработок отключено: сервер запущен без --edit-path. "
+    "Перезапустите сервер с параметром --edit-path <каталог> для включения "
+    "инструментов создания/редактирования .ert."
+)
+
+
+def init_edit_path(path: str) -> None:
+    """Configure the writable directory for .ert creation/editing. Called at startup."""
+    global _edit_path
+    _edit_path = Path(path).resolve()
+
+
+def edit_path_enabled() -> bool:
+    return _edit_path is not None
+
+
+def _edit_target_error(name: str) -> str | None:
+    """Return an error message if `name` cannot be used as an edit-path write target."""
+    if _edit_path is None:
+        return _EDIT_DISABLED_MSG
+    try:
+        ert_writer._validate_name(name)
+    except ert_writer.ErtNameError as e:
+        return str(e)
+    return None
+
+
+def create_ert_file(name: str, module_text: str = "", caption: str = "") -> str:
+    """Create a new external processing (.ert) in the --edit-path directory."""
+    if err := _edit_target_error(name):
+        return err
+    dialog = default_dialog(caption) if caption else default_dialog()
+    try:
+        path = ert_writer.create_ert_file(_edit_path, name, module_text, dialog)
+    except (ert_writer.ErtNameError, FileExistsError) as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Создана обработка '{name}': {path}"
+
+
+def _require_edit_target(name: str) -> str | None:
+    """Like _edit_target_error, but also requires the file to already exist
+    inside edit-path (for update tools), giving a specific error otherwise."""
+    if err := _edit_target_error(name):
+        return err
+    target = _edit_path / f"{name}.ert"
+    if not target.exists():
+        existing = _ert_loader.find(name)
+        if existing is not None:
+            return (
+                f"Обработка '{name}' найдена по пути {existing.path}, но это не "
+                f"каталог --edit-path ({_edit_path}) — редактирование недоступно "
+                f"для файлов вне каталога редактирования."
+            )
+        return f"Обработка '{name}' не найдена в каталоге редактирования ({_edit_path})."
+    return None
+
+
+def update_ert_module(name: str, new_text: str) -> str:
+    """Replace the module (BSL) source of an existing edit-path .ert."""
+    if err := _require_edit_target(name):
+        return err
+    ert_writer.update_ert_module(_edit_path, name, new_text)
+    _ert_loader.rescan()
+    return f"Модуль обработки '{name}' обновлён."
+
+
+def set_ert_dialog_frame(
+    name: str, caption: str | None = None, width: int | None = None, height: int | None = None
+) -> str:
+    """Update the window title/size of an existing edit-path .ert's dialog."""
+    if err := _require_edit_target(name):
+        return err
+    dialog = ert_writer.get_editable_dialog(_edit_path, name)
+    if caption is not None:
+        dialog.frame.caption = caption
+    if width is not None:
+        dialog.frame.width = width
+    if height is not None:
+        dialog.frame.height = height
+    ert_writer.update_ert_dialog(_edit_path, name, dialog)
+    _ert_loader.rescan()
+    return f"Форма обработки '{name}' обновлена."
+
+
+def add_ert_dialog_control(
+    name: str,
+    caption: str,
+    control_class: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    action: str = "",
+    bound_attribute: str = "",
+    type_code: str = "",
+    tab_group_name: str = "Основной",
+) -> str:
+    """Add a new control to an existing edit-path .ert's dialog (form)."""
+    if err := _require_edit_target(name):
+        return err
+    dialog = ert_writer.get_editable_dialog(_edit_path, name)
+    control = DialogControl(
+        id=dialog.next_control_id(),
+        caption=caption,
+        control_class=control_class,
+        x=x, y=y, width=width, height=height,
+        action=action,
+        bound_attribute=bound_attribute,
+        type_code=type_code,
+        tab_group_name=tab_group_name,
+    )
+    dialog.controls.append(control)
+    ert_writer.update_ert_dialog(_edit_path, name, dialog)
+    _ert_loader.rescan()
+    return f"Элемент управления id={control.id} добавлен в форму обработки '{name}'."
+
+
+def update_ert_dialog_control(
+    name: str,
+    control_id: int,
+    caption: str | None = None,
+    control_class: str | None = None,
+    x: int | None = None,
+    y: int | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    action: str | None = None,
+    bound_attribute: str | None = None,
+    type_code: str | None = None,
+    tab_group_name: str | None = None,
+) -> str:
+    """Update fields of an existing control on an edit-path .ert's dialog."""
+    if err := _require_edit_target(name):
+        return err
+    dialog = ert_writer.get_editable_dialog(_edit_path, name)
+    control = dialog.find_control(control_id)
+    if control is None:
+        return f"Элемент управления id={control_id} не найден в форме обработки '{name}'."
+    if caption is not None:
+        control.caption = caption
+    if control_class is not None:
+        control.control_class = control_class
+    if x is not None:
+        control.x = x
+    if y is not None:
+        control.y = y
+    if width is not None:
+        control.width = width
+    if height is not None:
+        control.height = height
+    if action is not None:
+        control.action = action
+    if bound_attribute is not None:
+        control.bound_attribute = bound_attribute
+    if type_code is not None:
+        control.type_code = type_code
+    if tab_group_name is not None:
+        control.tab_group_name = tab_group_name
+    ert_writer.update_ert_dialog(_edit_path, name, dialog)
+    _ert_loader.rescan()
+    return f"Элемент управления id={control_id} формы обработки '{name}' обновлён."
+
+
+def remove_ert_dialog_control(name: str, control_id: int) -> str:
+    """Remove a control from an existing edit-path .ert's dialog."""
+    if err := _require_edit_target(name):
+        return err
+    dialog = ert_writer.get_editable_dialog(_edit_path, name)
+    control = dialog.find_control(control_id)
+    if control is None:
+        return f"Элемент управления id={control_id} не найден в форме обработки '{name}'."
+    dialog.controls.remove(control)
+    ert_writer.update_ert_dialog(_edit_path, name, dialog)
+    _ert_loader.rescan()
+    return f"Элемент управления id={control_id} удалён из формы обработки '{name}'."

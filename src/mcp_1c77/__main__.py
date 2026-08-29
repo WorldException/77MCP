@@ -17,12 +17,20 @@ def main() -> None:
         default=None,
         help="Доп. каталоги с внешними обработками (*.ert), добавляются к каталогу ExtForms",
     )
+    parser.add_argument(
+        "--edit-path",
+        default=None,
+        help="Каталог для создания/редактирования внешних обработок (*.ert) через MCP. "
+        "Если не указан, инструменты создания/редактирования обработок недоступны.",
+    )
     args = parser.parse_args()
 
     if args.basepath:
         os.environ["MCP_BASEPATH"] = args.basepath
     if args.exts:
         os.environ["MCP_EXT_DIRS"] = os.pathsep.join(args.exts)
+    if args.edit_path:
+        os.environ["MCP_EDIT_PATH"] = args.edit_path
 
     import uvicorn
 

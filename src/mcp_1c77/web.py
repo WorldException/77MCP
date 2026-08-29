@@ -27,12 +27,18 @@ READONLY = bool(BASEPATH)
 MD_FILENAME = "1cv7.md"
 _EXTRA_EXT_DIRS = [d for d in os.environ.get("MCP_EXT_DIRS", "").split(os.pathsep) if d]
 
+# MCP_EDIT_PATH: optional writable directory where new .ert files can be
+# created/edited via MCP tools. When unset, those tools stay disabled.
+EDIT_PATH = os.environ.get("MCP_EDIT_PATH")
+
 
 def _resolve_ext_dirs() -> list[str]:
     """Resolve directories to scan for external processing (.ert) files.
 
     Always includes "<CONFIG_DIR>/ExtForms"; values from MCP_EXT_DIRS are
-    appended (resolved relative to CONFIG_DIR unless absolute).
+    appended (resolved relative to CONFIG_DIR unless absolute). EDIT_PATH,
+    if set, is also appended so newly created/edited files are immediately
+    visible to the read-only .ert tools.
     """
     base = Path(CONFIG_DIR)
     dirs = [str(base / "ExtForms")]
@@ -41,6 +47,8 @@ def _resolve_ext_dirs() -> list[str]:
         resolved = str(p if p.is_absolute() else base / p)
         if resolved not in dirs:
             dirs.append(resolved)
+    if EDIT_PATH and EDIT_PATH not in dirs:
+        dirs.append(EDIT_PATH)
     return dirs
 
 _HTML_PAGE_PATH = Path(__file__).parent / "static" / "index.html"
@@ -100,6 +108,7 @@ async def api_status(request: Request) -> JSONResponse:
         "ext_dirs": [str(Path(d).resolve()) for d in _resolve_ext_dirs()],
         "ert_count": len(tools.get_ert_loader().list_files()),
         "readonly": READONLY,
+        "edit_path": str(Path(EDIT_PATH).resolve()) if EDIT_PATH else None,
     }
 
     loader = tools.get_loader()
@@ -136,6 +145,9 @@ async def startup() -> None:
     else:
         os.makedirs(CONFIG_DIR, exist_ok=True)
     tools.set_data_dir(CONFIG_DIR)
+    if EDIT_PATH:
+        os.makedirs(EDIT_PATH, exist_ok=True)
+        tools.init_edit_path(EDIT_PATH)
     tools.init_ert_dirs(_resolve_ext_dirs())
     md_path = os.path.join(CONFIG_DIR, MD_FILENAME)
     if os.path.exists(md_path):

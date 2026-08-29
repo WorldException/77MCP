@@ -29,7 +29,7 @@ build = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-mcp_1c77 = ["static/*.html"]
+mcp_1c77 = ["static/*.html", "templates/*.bin"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

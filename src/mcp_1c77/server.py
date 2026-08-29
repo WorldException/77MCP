@@ -349,3 +349,176 @@ def reload_ert_files() -> str:
     обработок на диске изменился после последнего сканирования (сервер
     сканирует каталоги один раз при старте и кэширует список)."""
     return tools.reload_ert_files()
+
+
+@mcp.tool()
+def list_ert_dialog_controls(name: str) -> str:
+    """Разобранный (структурированный) список элементов управления формы
+    внешней обработки — id, класс контрола (BUTTON/STATIC/1CEDIT/BMASKED/...),
+    подпись, координаты/размер, привязанный реквизит и его тип, действие
+    (обработчик). Используйте перед add_ert_dialog_control/
+    update_ert_dialog_control/remove_ert_dialog_control, чтобы узнать id
+    существующих элементов и не пересекаться с ними по координатам. Работает
+    для ЛЮБОЙ обработки (не только из --edit-path) — это инструмент чтения.
+    Для сырого текста формы (без разбора) используйте get_ert_form.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+    """
+    return tools.list_ert_dialog_controls(name)
+
+
+# --- External processing (.ert) write tools — require --edit-path ---
+#
+# Эти инструменты позволяют создавать/редактировать внешние обработки, но
+# работают ТОЛЬКО с файлами внутри каталога, заданного параметром запуска
+# сервера --edit-path. Если сервер запущен без --edit-path, все они
+# возвращают текстовое сообщение об ошибке вместо результата.
+
+
+@mcp.tool()
+def create_ert_file(name: str, module_text: str = "", caption: str = "") -> str:
+    """Создать новую внешнюю обработку (.ert) в каталоге --edit-path.
+    Требует запуска сервера с параметром --edit-path.
+
+    Создаёт файл с пустой (или заданным начальным текстом) формой и модулем.
+    После создания используйте add_ert_dialog_control, чтобы добавить
+    элементы управления на форму, и update_ert_module, чтобы изменить код.
+
+    Args:
+        name: Имя новой обработки без расширения .ert (без '/', '\\', '..').
+        module_text: Начальный текст программного модуля (БСЛ). Можно
+                     оставить пустым и заполнить позже через update_ert_module.
+        caption: Заголовок окна формы. Пусто — заголовок по умолчанию (" ").
+    """
+    return tools.create_ert_file(name, module_text, caption)
+
+
+@mcp.tool()
+def update_ert_module(name: str, new_text: str) -> str:
+    """Полностью заменить текст программного модуля (БСЛ) внешней обработки
+    в каталоге --edit-path. Требует запуска сервера с параметром --edit-path
+    и того, чтобы файл '<name>.ert' уже находился именно в --edit-path
+    (обработки из других каталогов, например ExtForms, недоступны для записи).
+
+    Перед изменением получите текущий код через get_ert_module, отредактируйте
+    его и передайте сюда целиком — частичного патча (только одной процедуры)
+    этот инструмент не делает.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+        new_text: Новый полный текст модуля.
+    """
+    return tools.update_ert_module(name, new_text)
+
+
+@mcp.tool()
+def set_ert_dialog_frame(
+    name: str, caption: str | None = None, width: int | None = None, height: int | None = None
+) -> str:
+    """Изменить заголовок и/или размер окна формы внешней обработки в
+    каталоге --edit-path. Требует --edit-path.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+        caption: Новый заголовок окна формы, если нужно изменить.
+        width: Новая ширина окна формы, если нужно изменить.
+        height: Новая высота окна формы, если нужно изменить.
+    """
+    return tools.set_ert_dialog_frame(name, caption, width, height)
+
+
+@mcp.tool()
+def add_ert_dialog_control(
+    name: str,
+    caption: str,
+    control_class: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    action: str = "",
+    bound_attribute: str = "",
+    type_code: str = "",
+    tab_group_name: str = "Основной",
+) -> str:
+    """Добавить новый элемент управления на форму внешней обработки в
+    каталоге --edit-path. Требует --edit-path. Используйте
+    list_ert_dialog_controls перед вызовом, чтобы посмотреть уже занятые
+    координаты и существующие id.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+        caption: Текст/подпись элемента (для BUTTON/STATIC/CHECKBOX и т.п.).
+        control_class: Класс элемента, например BUTTON, STATIC, 1CEDIT,
+                       BMASKED, CHECKBOX.
+        x: Координата X (в единицах формы 1С).
+        y: Координата Y.
+        width: Ширина элемента.
+        height: Высота элемента.
+        action: Обработчик/действие, например "Сформировать()" или "#Закрыть"
+                для стандартной кнопки закрытия.
+        bound_attribute: Имя реквизита формы, с которым связан элемент
+                         (для полей ввода типа 1CEDIT/BMASKED).
+        type_code: Код типа значения реквизита — один из: S(Строка),
+                   N(Число), D(Дата), B(Справочник), E(Перечисление),
+                   O(Документ), P(ПланСчетов), U(Неопределенный),
+                   L(Логический). Пусто, если элемент ни к чему не привязан.
+        tab_group_name: Имя группы табуляции (по умолчанию "Основной").
+    """
+    return tools.add_ert_dialog_control(
+        name, caption, control_class, x, y, width, height,
+        action, bound_attribute, type_code, tab_group_name,
+    )
+
+
+@mcp.tool()
+def update_ert_dialog_control(
+    name: str,
+    control_id: int,
+    caption: str | None = None,
+    control_class: str | None = None,
+    x: int | None = None,
+    y: int | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    action: str | None = None,
+    bound_attribute: str | None = None,
+    type_code: str | None = None,
+    tab_group_name: str | None = None,
+) -> str:
+    """Изменить поля существующего элемента управления формы внешней
+    обработки в каталоге --edit-path. Требует --edit-path. Указывайте
+    только те параметры, которые нужно изменить — остальные останутся
+    прежними. id элемента можно узнать через list_ert_dialog_controls.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+        control_id: id изменяемого элемента управления.
+        caption: Новый текст/подпись, если нужно изменить.
+        control_class: Новый класс элемента, если нужно изменить.
+        x: Новая координата X, если нужно изменить.
+        y: Новая координата Y, если нужно изменить.
+        width: Новая ширина, если нужно изменить.
+        height: Новая высота, если нужно изменить.
+        action: Новый обработчик/действие, если нужно изменить.
+        bound_attribute: Новый привязанный реквизит, если нужно изменить.
+        type_code: Новый код типа (см. add_ert_dialog_control), если нужно изменить.
+        tab_group_name: Новая группа табуляции, если нужно изменить.
+    """
+    return tools.update_ert_dialog_control(
+        name, control_id, caption, control_class, x, y, width, height,
+        action, bound_attribute, type_code, tab_group_name,
+    )
+
+
+@mcp.tool()
+def remove_ert_dialog_control(name: str, control_id: int) -> str:
+    """Удалить элемент управления с формы внешней обработки в каталоге
+    --edit-path. Требует --edit-path.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+        control_id: id удаляемого элемента управления (см. list_ert_dialog_controls).
+    """
+    return tools.remove_ert_dialog_control(name, control_id)
