@@ -14,10 +14,10 @@ build-windows:
     - uv sync --extra build
     - uv run pyinstaller packaging/mcp_1c77.spec --clean --noconfirm
     - $VERSION_TAG = uv version --short
-    - Move-Item dist/mcp-1c77.exe "dist/mcp-1c77-$VERSION_TAG.exe"
+    - Move-Item dist/mcp-1c77 "dist/mcp-1c77-$VERSION_TAG"
   artifacts:
     paths:
-      - dist/mcp-1c77-*.exe
+      - dist/mcp-1c77-*/
     #expire_in: 1 week
 
 build_to_yandex:
