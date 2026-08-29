@@ -1421,6 +1421,48 @@ def list_ert_dialog_controls(name: str) -> str:
     return "\n".join(lines)
 
 
+def get_ert_print_form(name: str) -> str:
+    """Show the parsed print form (Page.1/MOXCEL table) of an external processing."""
+    entry = _ert_loader.find(name)
+    if entry is None:
+        return f"Обработка '{name}' не найдена."
+    try:
+        sheet = ert_writer.get_print_form(Path(entry.path))
+    except FileNotFoundError:
+        return f"Печатная форма обработки '{name}' не найдена."
+    except Exception as e:
+        return f"Не удалось разобрать печатную форму обработки '{name}': {e}"
+
+    if sheet.n_rows == 0 and sheet.n_columns == 0 and not sheet.rows:
+        return f"Обработка '{name}' не использует печатную форму (таблицу)."
+
+    lines = [
+        f"# Обработка.{name}: печатная форма ({sheet.n_columns} кол. x {sheet.n_rows} стр., "
+        f"версия MOXCEL {sheet.version})",
+        "",
+    ]
+    if sheet.objects:
+        lines.append(
+            f"(в форме также {len(sheet.objects)} встроенных объектов — линии/картинки/OLE, "
+            f"не показаны, разбор только текстовых ячеек)"
+        )
+        lines.append("")
+    any_cell = False
+    for row_idx in sorted(sheet.rows):
+        row = sheet.rows[row_idx]
+        cells = [
+            f"{col_idx}={cell.text if cell.text is not None else cell.value}"
+            for col_idx, cell in sorted(row.cells.items())
+            if cell.text or cell.value
+        ]
+        if cells:
+            any_cell = True
+            lines.append(f"  строка {row_idx}: " + "; ".join(cells))
+    if not any_cell:
+        lines.append("  (текстовых ячеек нет)")
+    return "\n".join(lines)
+
+
 # --- External processing (.ert) write tools (edit-path only) ---
 
 
@@ -1452,13 +1494,18 @@ def _edit_target_error(name: str) -> str | None:
     return None
 
 
-def create_ert_file(name: str, module_text: str = "", caption: str = "") -> str:
+def create_ert_file(
+    name: str,
+    module_text: str = "",
+    caption: str = "",
+    print_form_rows: list[list[str]] | None = None,
+) -> str:
     """Create a new external processing (.ert) in the --edit-path directory."""
     if err := _edit_target_error(name):
         return err
     dialog = default_dialog(caption) if caption else default_dialog()
     try:
-        path = ert_writer.create_ert_file(_edit_path, name, module_text, dialog)
+        path = ert_writer.create_ert_file(_edit_path, name, module_text, dialog, print_form_rows)
     except (ert_writer.ErtNameError, FileExistsError) as e:
         return str(e)
     _ert_loader.rescan()
@@ -1587,6 +1634,16 @@ def update_ert_dialog_control(
     ert_writer.update_ert_dialog(_edit_path, name, dialog)
     _ert_loader.rescan()
     return f"Элемент управления id={control_id} формы обработки '{name}' обновлён."
+
+
+def update_ert_print_form(name: str, rows: list[list[str]]) -> str:
+    """Replace the print form (Page.1/MOXCEL table) of an existing edit-path .ert
+    with a simple grid of cell text (no formatting/objects)."""
+    if err := _require_edit_target(name):
+        return err
+    ert_writer.update_ert_print_form(_edit_path, name, rows)
+    _ert_loader.rescan()
+    return f"Печатная форма обработки '{name}' обновлена ({len(rows)} строк)."
 
 
 def remove_ert_dialog_control(name: str, control_id: int) -> str:

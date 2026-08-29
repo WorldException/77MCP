@@ -25,6 +25,7 @@ def test_write_tools_disabled_without_edit_path():
     assert "отключено" in tools.update_ert_dialog_control("X", 1)
     assert "отключено" in tools.remove_ert_dialog_control("X", 1)
     assert "отключено" in tools.set_ert_dialog_frame("X")
+    assert "отключено" in tools.update_ert_print_form("X", [["a"]])
 
 
 def test_full_workflow_via_tools_layer(tmp_path):
@@ -61,6 +62,28 @@ def test_full_workflow_via_tools_layer(tmp_path):
     result = tools.remove_ert_dialog_control("Robot1", control_id)
     assert "удалён" in result
     assert "элементов управления нет" in tools.list_ert_dialog_controls("Robot1")
+
+
+def test_print_form_workflow(tmp_path):
+    tools.init_edit_path(str(tmp_path))
+    tools.init_ert_dirs([str(tmp_path)])
+
+    tools.create_ert_file("Report1")
+    result = tools.get_ert_print_form("Report1")
+    assert "не использует печатную форму" in result
+
+    result = tools.update_ert_print_form(
+        "Report1", [["Наименование", "Кол-во"], ["Товар1", "5"]]
+    )
+    assert "обновлена" in result
+
+    result = tools.get_ert_print_form("Report1")
+    assert "Наименование" in result
+    assert "Товар1" in result
+
+
+def test_update_ert_print_form_disabled_without_edit_path():
+    assert "отключено" in tools.update_ert_print_form("X", [["a"]])
 
 
 def test_create_ert_refuses_duplicate(tmp_path):

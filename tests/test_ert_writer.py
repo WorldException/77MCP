@@ -83,3 +83,33 @@ def test_update_ert_dialog_add_update_remove_control(tmp_path):
 def test_update_ert_module_missing_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         ert_writer.update_ert_module(tmp_path, "DoesNotExist", "text")
+
+
+def test_create_ert_with_print_form_rows(tmp_path):
+    path = ert_writer.create_ert_file(
+        tmp_path, "WithReport",
+        print_form_rows=[["Наименование", "Кол-во"], ["Товар1", "5"]],
+    )
+    sheet = ert_writer.get_print_form(path)
+    assert sheet.n_columns == 2
+    assert sheet.n_rows == 2
+    assert sheet.cell_text(0, 0) == "Наименование"
+    assert sheet.cell_text(1, 1) == "5"
+
+
+def test_update_ert_print_form_preserves_other_streams(tmp_path):
+    path = ert_writer.create_ert_file(tmp_path, "ReportEdit")
+    before = ert_writer.load_editable_streams(path)
+
+    ert_writer.update_ert_print_form(tmp_path, "ReportEdit", [["a", "b"]])
+    after = ert_writer.load_editable_streams(path)
+
+    for name in before:
+        if name == "Page.1":
+            assert before[name] != after[name]
+        else:
+            assert before[name] == after[name], name
+
+    sheet = ert_writer.get_print_form(path)
+    assert sheet.cell_text(0, 0) == "a"
+    assert sheet.cell_text(0, 1) == "b"

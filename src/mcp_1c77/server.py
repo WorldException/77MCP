@@ -368,6 +368,23 @@ def list_ert_dialog_controls(name: str) -> str:
     return tools.list_ert_dialog_controls(name)
 
 
+@mcp.tool()
+def get_ert_print_form(name: str) -> str:
+    """Разобранная печатная форма (Page.1, формат MOXCEL — встроенная "таблица"
+    1С 7.7, на основе которой строится печатный вывод отчёта/обработки):
+    список непустых текстовых ячеек по строкам, с привязками к реквизитам/
+    выражениям (например значение ячейки может быть именем переменной
+    модуля вроде "ПоставщикОКПО" — тогда 1С подставит туда значение при
+    формировании печати). Работает для ЛЮБОЙ обработки (не только из
+    --edit-path) — это инструмент чтения. Встроенные объекты (картинки,
+    линии, OLE) не разбираются подробно, только их количество.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+    """
+    return tools.get_ert_print_form(name)
+
+
 # --- External processing (.ert) write tools — require --edit-path ---
 #
 # Эти инструменты позволяют создавать/редактировать внешние обработки, но
@@ -377,21 +394,34 @@ def list_ert_dialog_controls(name: str) -> str:
 
 
 @mcp.tool()
-def create_ert_file(name: str, module_text: str = "", caption: str = "") -> str:
+def create_ert_file(
+    name: str,
+    module_text: str = "",
+    caption: str = "",
+    print_form_rows: list[list[str]] | None = None,
+) -> str:
     """Создать новую внешнюю обработку (.ert) в каталоге --edit-path.
     Требует запуска сервера с параметром --edit-path.
 
     Создаёт файл с пустой (или заданным начальным текстом) формой и модулем.
     После создания используйте add_ert_dialog_control, чтобы добавить
-    элементы управления на форму, и update_ert_module, чтобы изменить код.
+    элементы управления на форму, update_ert_module, чтобы изменить код, и
+    update_ert_print_form, чтобы позже изменить печатную форму.
 
     Args:
         name: Имя новой обработки без расширения .ert (без '/', '\\', '..').
         module_text: Начальный текст программного модуля (БСЛ). Можно
                      оставить пустым и заполнить позже через update_ert_module.
         caption: Заголовок окна формы. Пусто — заголовок по умолчанию (" ").
+        print_form_rows: Необязательная начальная печатная форма (таблица) —
+                     список строк, каждая строка — список текстов ячеек по
+                     колонкам, например [["Товар","Кол-во"],["Стул","5"]].
+                     Текст ячейки может быть именем реквизита/переменной —
+                     тогда при печати туда подставится её значение. Пусто —
+                     печатная форма не используется (как у большинства
+                     служебных обработок без визуального отчёта).
     """
-    return tools.create_ert_file(name, module_text, caption)
+    return tools.create_ert_file(name, module_text, caption, print_form_rows)
 
 
 @mcp.tool()
@@ -510,6 +540,23 @@ def update_ert_dialog_control(
         name, control_id, caption, control_class, x, y, width, height,
         action, bound_attribute, type_code, tab_group_name,
     )
+
+
+@mcp.tool()
+def update_ert_print_form(name: str, rows: list[list[str]]) -> str:
+    """Заменить печатную форму (Page.1, MOXCEL-таблица) внешней обработки в
+    каталоге --edit-path простой сеткой текстовых ячеек. Требует --edit-path.
+    Форматирование (шрифты/границы/цвета), объединение ячеек и встроенные
+    объекты (картинки/линии) этим инструментом не поддерживаются — только
+    текст в ячейках; для сложного оформления печатную форму нужно доработать
+    вручную в дизайнере 1С.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+        rows: Список строк таблицы, каждая строка — список текстов ячеек по
+              колонкам (см. print_form_rows в create_ert_file).
+    """
+    return tools.update_ert_print_form(name, rows)
 
 
 @mcp.tool()
