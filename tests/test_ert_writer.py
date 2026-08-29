@@ -127,6 +127,31 @@ def test_patch_ert_module_leaves_file_untouched_on_failure(tmp_path):
     assert before == after
 
 
+def test_append_ert_module_text_adds_newline_separator(tmp_path):
+    ert_writer.create_ert_file(tmp_path, "Append", module_text="Процедура X()\nКонецПроцедуры")
+    text = ert_writer.append_ert_module_text(
+        tmp_path, "Append", "Процедура Y()\nКонецПроцедуры"
+    )
+    assert text == "Процедура X()\nКонецПроцедуры\nПроцедура Y()\nКонецПроцедуры"
+
+
+def test_append_ert_module_text_no_double_newline(tmp_path):
+    ert_writer.create_ert_file(tmp_path, "AppendNL", module_text="A\n")
+    text = ert_writer.append_ert_module_text(tmp_path, "AppendNL", "B")
+    assert text == "A\nB"
+
+
+def test_append_ert_module_text_empty_module(tmp_path):
+    ert_writer.create_ert_file(tmp_path, "AppendEmpty", module_text="")
+    text = ert_writer.append_ert_module_text(tmp_path, "AppendEmpty", "A")
+    assert text == "A"
+
+
+def test_append_ert_module_text_missing_file_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        ert_writer.append_ert_module_text(tmp_path, "DoesNotExist", "text")
+
+
 def test_replace_ert_module_lines(tmp_path):
     ert_writer.create_ert_file(
         tmp_path, "Lines", module_text="line1\nline2\nline3\nline4"

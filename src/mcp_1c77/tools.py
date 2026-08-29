@@ -1574,6 +1574,18 @@ def patch_ert_module(name: str, edits: list[dict]) -> str:
     return f"Модуль обработки '{name}' обновлён ({len(edits)} правок применено)."
 
 
+def append_ert_module_text(name: str, text: str) -> str:
+    """Append text to the end of an existing edit-path .ert's module (e.g. a
+    new procedure), without resending the existing (possibly huge) module
+    text.
+    """
+    if err := _require_edit_target(name):
+        return err
+    ert_writer.append_ert_module_text(_edit_path, name, text)
+    _ert_loader.rescan()
+    return f"Модуль обработки '{name}' дополнен ({len(text)} симв. добавлено)."
+
+
 def replace_ert_module_lines(name: str, start_line: int, end_line: int, new_text: str) -> str:
     """Replace a 1-based inclusive line range of an existing edit-path
     .ert's module with new_text, without resending the whole module.

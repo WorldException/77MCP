@@ -221,6 +221,29 @@ def patch_ert_module(
     return text
 
 
+def append_ert_module_text(edit_path: Path, name: str, text: str) -> str:
+    """Append `text` to the end of the `MD Programm text` stream of an
+    existing edit-path .ert (e.g. adding a whole new procedure), without
+    resending the existing module text or needing to know its current
+    length. A separating newline is inserted if the current text doesn't
+    already end with one.
+
+    Returns the new module text.
+    """
+    _validate_name(name)
+    target = edit_path / f"{name}.ert"
+    if not target.exists():
+        raise FileNotFoundError(f"Обработка '{name}' не найдена в {edit_path}.")
+    streams = load_editable_streams(target)
+    current = _decode_module(streams["MD Programm text"])
+    if current and not current.endswith("\n"):
+        current += "\n"
+    text = current + text
+    streams["MD Programm text"] = _encode_module(text)
+    ole_writer.write_compound_file(target, streams)
+    return text
+
+
 def replace_ert_module_lines(
     edit_path: Path, name: str, start_line: int, end_line: int, new_text: str
 ) -> str:

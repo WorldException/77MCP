@@ -22,6 +22,7 @@ def test_write_tools_disabled_without_edit_path():
     assert "отключено" in tools.create_ert_file("X")
     assert "отключено" in tools.update_ert_module("X", "text")
     assert "отключено" in tools.patch_ert_module("X", [{"old_string": "a", "new_string": "b"}])
+    assert "отключено" in tools.append_ert_module_text("X", "text")
     assert "отключено" in tools.replace_ert_module_lines("X", 1, 1, "text")
     assert "отключено" in tools.add_ert_dialog_control("X", "Cap", "BUTTON", 0, 0, 10, 10)
     assert "отключено" in tools.update_ert_dialog_control("X", 1)
@@ -112,6 +113,18 @@ def test_patch_ert_module_missing_old_string_returns_error(tmp_path):
 
     result = tools.patch_ert_module("PatchMiss", [{"old_string": "nope", "new_string": "x"}])
     assert "не найден" in result
+
+
+def test_append_ert_module_text_workflow(tmp_path):
+    tools.init_edit_path(str(tmp_path))
+    tools.init_ert_dirs([str(tmp_path)])
+    tools.create_ert_file("AppendTools", module_text="Процедура X()\nКонецПроцедуры")
+
+    result = tools.append_ert_module_text("AppendTools", "Процедура Y()\nКонецПроцедуры")
+    assert "дополнен" in result
+    module = tools.get_ert_module("AppendTools")
+    assert "Процедура X()" in module
+    assert "Процедура Y()" in module
 
 
 def test_replace_ert_module_lines_workflow(tmp_path):
