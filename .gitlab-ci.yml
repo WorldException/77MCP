@@ -18,4 +18,6 @@ build-windows:
   artifacts:
     paths:
       - dist/mcp-1c77-*.exe
-    expire_in: 1 week
+    #expire_in: 1 week
+  only:
+    - master
