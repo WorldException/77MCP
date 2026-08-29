@@ -85,6 +85,64 @@ def test_update_ert_module_missing_file_raises(tmp_path):
         ert_writer.update_ert_module(tmp_path, "DoesNotExist", "text")
 
 
+def test_patch_ert_module_applies_edits_in_order(tmp_path):
+    ert_writer.create_ert_file(
+        tmp_path, "Patchable", module_text="Процедура X()\n\tA = 1;\nКонецПроцедуры"
+    )
+    text = ert_writer.patch_ert_module(
+        tmp_path,
+        "Patchable",
+        [("A = 1;", "A = 2;", False), ("Процедура X()", "Процедура Y()", False)],
+    )
+    assert text == "Процедура Y()\n\tA = 2;\nКонецПроцедуры"
+    assert ert_writer.load_editable_streams(tmp_path / "Patchable.ert")
+
+
+def test_patch_ert_module_rejects_missing_old_string(tmp_path):
+    ert_writer.create_ert_file(tmp_path, "PatchMiss", module_text="A = 1;")
+    with pytest.raises(ert_writer.ErtPatchError):
+        ert_writer.patch_ert_module(tmp_path, "PatchMiss", [("B = 1;", "B = 2;", False)])
+
+
+def test_patch_ert_module_rejects_ambiguous_old_string(tmp_path):
+    ert_writer.create_ert_file(tmp_path, "PatchAmbig", module_text="A = 1;\nA = 1;")
+    with pytest.raises(ert_writer.ErtPatchError):
+        ert_writer.patch_ert_module(tmp_path, "PatchAmbig", [("A = 1;", "A = 2;", False)])
+
+
+def test_patch_ert_module_replace_all(tmp_path):
+    ert_writer.create_ert_file(tmp_path, "PatchAll", module_text="A = 1;\nA = 1;")
+    text = ert_writer.patch_ert_module(tmp_path, "PatchAll", [("A = 1;", "A = 2;", True)])
+    assert text == "A = 2;\nA = 2;"
+
+
+def test_patch_ert_module_leaves_file_untouched_on_failure(tmp_path):
+    path = ert_writer.create_ert_file(tmp_path, "PatchAtomic", module_text="A = 1;")
+    before = ert_writer.load_editable_streams(path)
+    with pytest.raises(ert_writer.ErtPatchError):
+        ert_writer.patch_ert_module(
+            tmp_path, "PatchAtomic", [("A = 1;", "A = 2;", False), ("nope", "x", False)]
+        )
+    after = ert_writer.load_editable_streams(path)
+    assert before == after
+
+
+def test_replace_ert_module_lines(tmp_path):
+    ert_writer.create_ert_file(
+        tmp_path, "Lines", module_text="line1\nline2\nline3\nline4"
+    )
+    text = ert_writer.replace_ert_module_lines(
+        tmp_path, "Lines", 2, 3, "newline2\nnewline3"
+    )
+    assert text == "line1\nnewline2\nnewline3\nline4"
+
+
+def test_replace_ert_module_lines_out_of_range_raises(tmp_path):
+    ert_writer.create_ert_file(tmp_path, "LinesBad", module_text="line1\nline2")
+    with pytest.raises(ert_writer.ErtPatchError):
+        ert_writer.replace_ert_module_lines(tmp_path, "LinesBad", 1, 5, "x")
+
+
 def test_create_ert_with_print_form_rows(tmp_path):
     path = ert_writer.create_ert_file(
         tmp_path, "WithReport",

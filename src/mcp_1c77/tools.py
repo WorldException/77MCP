@@ -1539,6 +1539,60 @@ def update_ert_module(name: str, new_text: str) -> str:
     return f"Модуль обработки '{name}' обновлён."
 
 
+def patch_ert_module(name: str, edits: list[dict]) -> str:
+    """Apply a sequence of exact string replacements to an existing
+    edit-path .ert's module, without resending the whole (possibly huge)
+    module text.
+
+    Each edit is `{"old_string": ..., "new_string": ..., "replace_all": ...}`
+    (`replace_all` optional, defaults to false). `old_string` must occur
+    exactly once in the module text at the time it's applied — include
+    enough surrounding context to make it unique — unless `replace_all` is
+    set. Edits are applied in order; if any edit fails to match, none of
+    them are written.
+
+    Prefer this over update_ert_module for surgical fixes to large modules;
+    use replace_ert_module_lines instead when replacing a whole known block
+    (e.g. a procedure body found via get_ert_procedure_source).
+    """
+    if err := _require_edit_target(name):
+        return err
+    if not edits:
+        return "Список правок пуст — нечего применять."
+    try:
+        parsed = [
+            (e["old_string"], e["new_string"], bool(e.get("replace_all", False)))
+            for e in edits
+        ]
+    except KeyError as e:
+        return f"Каждая правка должна содержать old_string и new_string (отсутствует {e})."
+    try:
+        ert_writer.patch_ert_module(_edit_path, name, parsed)
+    except ert_writer.ErtPatchError as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Модуль обработки '{name}' обновлён ({len(edits)} правок применено)."
+
+
+def replace_ert_module_lines(name: str, start_line: int, end_line: int, new_text: str) -> str:
+    """Replace a 1-based inclusive line range of an existing edit-path
+    .ert's module with new_text, without resending the whole module.
+
+    Get exact line numbers first via get_ert_module or
+    get_ert_procedure_source. Prefer patch_ert_module for small surgical
+    fixes where quoting exact old text is easy; use this when replacing an
+    entire known block by line range instead.
+    """
+    if err := _require_edit_target(name):
+        return err
+    try:
+        ert_writer.replace_ert_module_lines(_edit_path, name, start_line, end_line, new_text)
+    except ert_writer.ErtPatchError as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Модуль обработки '{name}' обновлён (строки {start_line}–{end_line} заменены)."
+
+
 def set_ert_dialog_frame(
     name: str, caption: str | None = None, width: int | None = None, height: int | None = None
 ) -> str:

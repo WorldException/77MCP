@@ -62,6 +62,10 @@ class ErtNameError(ValueError):
     """Raised when a processing name is invalid or unsafe to use as a filename."""
 
 
+class ErtPatchError(ValueError):
+    """Raised when a module patch edit can't be applied unambiguously."""
+
+
 def _validate_name(name: str) -> None:
     if not name or ".." in name or not _VALID_NAME_RE.match(name):
         raise ErtNameError(
@@ -80,6 +84,14 @@ def _encode_module(text: str) -> bytes:
     data = compressor.compress(text.encode("windows-1251", errors="replace"))
     data += compressor.flush()
     return data
+
+
+def _decode_module(data: bytes) -> str:
+    try:
+        decompressed = zlib.decompress(data, -15)
+        return decompressed.decode("windows-1251", errors="replace")
+    except zlib.error:
+        return data.decode("windows-1251", errors="replace")
 
 
 def _encode_text_with_header(text: str) -> bytes:
@@ -166,6 +178,77 @@ def update_ert_module(edit_path: Path, name: str, new_module_text: str) -> None:
     streams = load_editable_streams(target)
     streams["MD Programm text"] = _encode_module(new_module_text)
     ole_writer.write_compound_file(target, streams)
+
+
+def patch_ert_module(
+    edit_path: Path, name: str, edits: list[tuple[str, str, bool]]
+) -> str:
+    """Apply a sequence of exact string replacements to the `MD Programm
+    text` stream of an existing edit-path .ert, then write the whole file
+    back once.
+
+    Each edit is `(old_string, new_string, replace_all)`. `old_string` must
+    occur exactly once in the module text at the time it's applied, unless
+    `replace_all` is set. Edits are applied in order against the running
+    result of the previous ones, and only the final text is written — so a
+    failure partway through leaves the file untouched.
+
+    Returns the new module text (so callers can confirm the result without
+    a separate read).
+    """
+    _validate_name(name)
+    target = edit_path / f"{name}.ert"
+    if not target.exists():
+        raise FileNotFoundError(f"Обработка '{name}' не найдена в {edit_path}.")
+    streams = load_editable_streams(target)
+    text = _decode_module(streams["MD Programm text"])
+
+    for i, (old, new, replace_all) in enumerate(edits, start=1):
+        if old == "":
+            raise ErtPatchError(f"Правка #{i}: old_string не может быть пустой строкой.")
+        count = text.count(old)
+        if count == 0:
+            raise ErtPatchError(f"Правка #{i}: old_string не найден в модуле.")
+        if count > 1 and not replace_all:
+            raise ErtPatchError(
+                f"Правка #{i}: old_string встречается {count} раз(а) в модуле; "
+                "уточните контекст вокруг фрагмента или укажите replace_all=true."
+            )
+        text = text.replace(old, new) if replace_all else text.replace(old, new, 1)
+
+    streams["MD Programm text"] = _encode_module(text)
+    ole_writer.write_compound_file(target, streams)
+    return text
+
+
+def replace_ert_module_lines(
+    edit_path: Path, name: str, start_line: int, end_line: int, new_text: str
+) -> str:
+    """Replace the 1-based inclusive line range [start_line, end_line] of the
+    `MD Programm text` stream of an existing edit-path .ert with `new_text`,
+    then write the whole file back once.
+
+    Returns the new module text.
+    """
+    _validate_name(name)
+    target = edit_path / f"{name}.ert"
+    if not target.exists():
+        raise FileNotFoundError(f"Обработка '{name}' не найдена в {edit_path}.")
+    streams = load_editable_streams(target)
+    text = _decode_module(streams["MD Programm text"])
+    lines = text.splitlines()
+    total = len(lines)
+    if start_line < 1 or start_line > total:
+        raise ErtPatchError(f"Строка начала {start_line} вне диапазона 1..{total}.")
+    if end_line < start_line or end_line > total:
+        raise ErtPatchError(
+            f"Строка конца {end_line} вне диапазона {start_line}..{total}."
+        )
+    new_lines = lines[: start_line - 1] + new_text.splitlines() + lines[end_line:]
+    text = "\n".join(new_lines)
+    streams["MD Programm text"] = _encode_module(text)
+    ole_writer.write_compound_file(target, streams)
+    return text
 
 
 def update_ert_dialog(edit_path: Path, name: str, dialog: Dialog) -> None:
