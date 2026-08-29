@@ -5,10 +5,17 @@ and forms from 1Cv7.MD configuration files.
 """
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from . import tools
 
-mcp = FastMCP("1c77-metadata")
+# The server is reached over LAN/Docker by IP or container hostname, not just
+# localhost — FastMCP's default DNS-rebinding protection only allowlists
+# 127.0.0.1/localhost and would reject those requests with HTTP 421.
+mcp = FastMCP(
+    "1c77-metadata",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 
 @mcp.tool()
