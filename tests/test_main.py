@@ -9,7 +9,8 @@ import pytest
 @pytest.fixture(autouse=True)
 def clean_env():
     saved = {
-        k: os.environ.pop(k, None) for k in ("MCP_BASEPATH", "MCP_DATA_DIR", "MCP_EXT_DIRS")
+        k: os.environ.pop(k, None)
+        for k in ("MCP_BASEPATH", "MCP_DATA_DIR", "MCP_EXT_DIRS", "MCP_EDIT_PATH")
     }
     yield
     for k, v in saved.items():
@@ -38,11 +39,17 @@ def test_exts_sets_env():
     assert os.environ["MCP_EXT_DIRS"] == os.pathsep.join(["foo", "bar"])
 
 
+def test_edit_path_sets_env():
+    _run_main(["--edit-path", "/some/edit/dir"])
+    assert os.environ["MCP_EDIT_PATH"] == "/some/edit/dir"
+
+
 def test_no_args_leaves_env_unset():
     _run_main([])
     assert "MCP_BASEPATH" not in os.environ
     assert "MCP_DATA_DIR" not in os.environ
     assert "MCP_EXT_DIRS" not in os.environ
+    assert "MCP_EDIT_PATH" not in os.environ
 
 
 def test_basepath_and_exts_together():

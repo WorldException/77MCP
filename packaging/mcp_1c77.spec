@@ -1,10 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for a standalone mcp-1c77 executable (onefile).
+"""PyInstaller spec for a standalone mcp-1c77 executable (onedir).
 
 Build (on Windows, from repo root):
     uv run pyinstaller packaging/mcp_1c77.spec --clean --noconfirm
 
-Output: dist/mcp-1c77.exe
+Output: dist/mcp-1c77/mcp-1c77.exe, with dependencies unpacked into
+dist/mcp-1c77/libs/ at build time. Onedir (rather than onefile) is
+deliberate: onefile re-extracts the whole bundle into a fresh temp dir on
+every launch, which on machines with AV/domain policies scanning or
+blocking that extraction can hang the process indefinitely. Onedir ships
+already unpacked, so there is no runtime extraction step at all.
 """
 
 import os
@@ -57,20 +62,28 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="mcp-1c77",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="mcp-1c77",
+    contents_directory="libs",
 )

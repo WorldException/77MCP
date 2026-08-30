@@ -8,10 +8,13 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from pathlib import Path
 
-from . import sql_naming
+from . import ert_writer, mssql_client, mssql_dba, sql_naming
+from .dialog_model import DialogControl
+from .dialog_parser import default_dialog, parse_dialog, serialize_dialog
 from .ert_loader import ErtLoader
-from .metadata import ConfigurationLoader
+from .metadata import TYPE_CODES, ConfigurationLoader
 from .models import ModuleProcedure, ModuleStructure
+from .sql_guard import assert_readonly_select
 
 # Global loader instance shared across all tool calls
 _loader = ConfigurationLoader()
@@ -20,6 +23,13 @@ _data_dir: Path | None = None
 
 # Global loader instance for external processing (.ert) files
 _ert_loader = ErtLoader()
+
+# Optional writable directory for creating/editing .ert files via MCP.
+_edit_path: Path | None = None
+
+# Whether direct read-only MSSQL queries via execute_sql_query are allowed.
+# Requires --allow-sql at startup — this reaches the live 1C database.
+_sql_allowed: bool = False
 
 
 def set_data_dir(path: str) -> None:
@@ -1387,3 +1397,405 @@ def reload_ert_files() -> str:
     """Rescan configured directories for external processing (*.ert) files."""
     entries = _ert_loader.rescan()
     return f"Пересканировано. Найдено внешних обработок: {len(entries)}"
+
+
+def list_ert_dialog_controls(name: str) -> str:
+    """List the parsed controls of an external processing's form (dialog)."""
+    text = _ert_loader.get_dialog(name)
+    if text is None:
+        return f"Форма обработки '{name}' не найдена."
+    dialog = parse_dialog(text)
+    lines = [
+        f"# Обработка.{name}: форма \"{dialog.frame.caption.strip()}\" "
+        f"({dialog.frame.width}x{dialog.frame.height}), элементов: {len(dialog.controls)}",
+        "",
+    ]
+    if not dialog.controls:
+        lines.append("  (элементов управления нет)")
+    for c in dialog.controls:
+        parts = [f"id={c.id}", c.control_class]
+        if c.caption:
+            parts.append(f'"{c.caption}"')
+        parts.append(f"[{c.x},{c.y},{c.width},{c.height}]")
+        if c.bound_attribute:
+            type_name = TYPE_CODES.get(c.type_code, c.type_code)
+            parts.append(f"-> {c.bound_attribute} ({type_name})")
+        if c.action:
+            parts.append(f"действие: {c.action}")
+        lines.append("  - " + "  ".join(parts))
+    return "\n".join(lines)
+
+
+def get_ert_print_form(name: str) -> str:
+    """Show the parsed print form (Page.1/MOXCEL table) of an external processing."""
+    entry = _ert_loader.find(name)
+    if entry is None:
+        return f"Обработка '{name}' не найдена."
+    try:
+        sheet = ert_writer.get_print_form(Path(entry.path))
+    except FileNotFoundError:
+        return f"Печатная форма обработки '{name}' не найдена."
+    except Exception as e:
+        return f"Не удалось разобрать печатную форму обработки '{name}': {e}"
+
+    if sheet.n_rows == 0 and sheet.n_columns == 0 and not sheet.rows:
+        return f"Обработка '{name}' не использует печатную форму (таблицу)."
+
+    lines = [
+        f"# Обработка.{name}: печатная форма ({sheet.n_columns} кол. x {sheet.n_rows} стр., "
+        f"версия MOXCEL {sheet.version})",
+        "",
+    ]
+    if sheet.objects:
+        lines.append(
+            f"(в форме также {len(sheet.objects)} встроенных объектов — линии/картинки/OLE, "
+            f"не показаны, разбор только текстовых ячеек)"
+        )
+        lines.append("")
+    any_cell = False
+    for row_idx in sorted(sheet.rows):
+        row = sheet.rows[row_idx]
+        cells = [
+            f"{col_idx}={cell.text if cell.text is not None else cell.value}"
+            for col_idx, cell in sorted(row.cells.items())
+            if cell.text or cell.value
+        ]
+        if cells:
+            any_cell = True
+            lines.append(f"  строка {row_idx}: " + "; ".join(cells))
+    if not any_cell:
+        lines.append("  (текстовых ячеек нет)")
+    return "\n".join(lines)
+
+
+# --- External processing (.ert) write tools (edit-path only) ---
+
+
+_EDIT_DISABLED_MSG = (
+    "Редактирование обработок отключено: сервер запущен без --edit-path. "
+    "Перезапустите сервер с параметром --edit-path <каталог> для включения "
+    "инструментов создания/редактирования .ert."
+)
+
+
+def init_edit_path(path: str) -> None:
+    """Configure the writable directory for .ert creation/editing. Called at startup."""
+    global _edit_path
+    _edit_path = Path(path).resolve()
+
+
+def edit_path_enabled() -> bool:
+    return _edit_path is not None
+
+
+def _edit_target_error(name: str) -> str | None:
+    """Return an error message if `name` cannot be used as an edit-path write target."""
+    if _edit_path is None:
+        return _EDIT_DISABLED_MSG
+    try:
+        ert_writer._validate_name(name)
+    except ert_writer.ErtNameError as e:
+        return str(e)
+    return None
+
+
+def create_ert_file(
+    name: str,
+    module_text: str = "",
+    caption: str = "",
+    print_form_rows: list[list[str]] | None = None,
+) -> str:
+    """Create a new external processing (.ert) in the --edit-path directory."""
+    if err := _edit_target_error(name):
+        return err
+    dialog = default_dialog(caption) if caption else default_dialog()
+    try:
+        path = ert_writer.create_ert_file(_edit_path, name, module_text, dialog, print_form_rows)
+    except (ert_writer.ErtNameError, FileExistsError) as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Создана обработка '{name}': {path}"
+
+
+def _require_edit_target(name: str) -> str | None:
+    """Like _edit_target_error, but also requires the file to already exist
+    inside edit-path (for update tools), giving a specific error otherwise."""
+    if err := _edit_target_error(name):
+        return err
+    target = _edit_path / f"{name}.ert"
+    if not target.exists():
+        existing = _ert_loader.find(name)
+        if existing is not None:
+            return (
+                f"Обработка '{name}' найдена по пути {existing.path}, но это не "
+                f"каталог --edit-path ({_edit_path}) — редактирование недоступно "
+                f"для файлов вне каталога редактирования."
+            )
+        return f"Обработка '{name}' не найдена в каталоге редактирования ({_edit_path})."
+    return None
+
+
+def update_ert_module(name: str, new_text: str) -> str:
+    """Replace the module (BSL) source of an existing edit-path .ert."""
+    if err := _require_edit_target(name):
+        return err
+    ert_writer.update_ert_module(_edit_path, name, new_text)
+    _ert_loader.rescan()
+    return f"Модуль обработки '{name}' обновлён."
+
+
+def patch_ert_module(name: str, edits: list[dict]) -> str:
+    """Apply a sequence of exact string replacements to an existing
+    edit-path .ert's module, without resending the whole (possibly huge)
+    module text.
+
+    Each edit is `{"old_string": ..., "new_string": ..., "replace_all": ...}`
+    (`replace_all` optional, defaults to false). `old_string` must occur
+    exactly once in the module text at the time it's applied — include
+    enough surrounding context to make it unique — unless `replace_all` is
+    set. Edits are applied in order; if any edit fails to match, none of
+    them are written.
+
+    Prefer this over update_ert_module for surgical fixes to large modules;
+    use replace_ert_module_lines instead when replacing a whole known block
+    (e.g. a procedure body found via get_ert_procedure_source).
+    """
+    if err := _require_edit_target(name):
+        return err
+    if not edits:
+        return "Список правок пуст — нечего применять."
+    try:
+        parsed = [
+            (e["old_string"], e["new_string"], bool(e.get("replace_all", False)))
+            for e in edits
+        ]
+    except KeyError as e:
+        return f"Каждая правка должна содержать old_string и new_string (отсутствует {e})."
+    try:
+        ert_writer.patch_ert_module(_edit_path, name, parsed)
+    except ert_writer.ErtPatchError as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Модуль обработки '{name}' обновлён ({len(edits)} правок применено)."
+
+
+def append_ert_module_text(name: str, text: str) -> str:
+    """Append text to the end of an existing edit-path .ert's module (e.g. a
+    new procedure), without resending the existing (possibly huge) module
+    text.
+    """
+    if err := _require_edit_target(name):
+        return err
+    ert_writer.append_ert_module_text(_edit_path, name, text)
+    _ert_loader.rescan()
+    return f"Модуль обработки '{name}' дополнен ({len(text)} симв. добавлено)."
+
+
+def replace_ert_module_lines(name: str, start_line: int, end_line: int, new_text: str) -> str:
+    """Replace a 1-based inclusive line range of an existing edit-path
+    .ert's module with new_text, without resending the whole module.
+
+    Get exact line numbers first via get_ert_module or
+    get_ert_procedure_source. Prefer patch_ert_module for small surgical
+    fixes where quoting exact old text is easy; use this when replacing an
+    entire known block by line range instead.
+    """
+    if err := _require_edit_target(name):
+        return err
+    try:
+        ert_writer.replace_ert_module_lines(_edit_path, name, start_line, end_line, new_text)
+    except ert_writer.ErtPatchError as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Модуль обработки '{name}' обновлён (строки {start_line}–{end_line} заменены)."
+
+
+def set_ert_dialog_frame(
+    name: str, caption: str | None = None, width: int | None = None, height: int | None = None
+) -> str:
+    """Update the window title/size of an existing edit-path .ert's dialog."""
+    if err := _require_edit_target(name):
+        return err
+    dialog = ert_writer.get_editable_dialog(_edit_path, name)
+    if caption is not None:
+        dialog.frame.caption = caption
+    if width is not None:
+        dialog.frame.width = width
+    if height is not None:
+        dialog.frame.height = height
+    ert_writer.update_ert_dialog(_edit_path, name, dialog)
+    _ert_loader.rescan()
+    return f"Форма обработки '{name}' обновлена."
+
+
+def add_ert_dialog_control(
+    name: str,
+    caption: str,
+    control_class: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    action: str = "",
+    bound_attribute: str = "",
+    type_code: str = "",
+    tab_group_name: str = "Основной",
+) -> str:
+    """Add a new control to an existing edit-path .ert's dialog (form)."""
+    if err := _require_edit_target(name):
+        return err
+    dialog = ert_writer.get_editable_dialog(_edit_path, name)
+    control = DialogControl(
+        id=dialog.next_control_id(),
+        caption=caption,
+        control_class=control_class,
+        x=x, y=y, width=width, height=height,
+        action=action,
+        bound_attribute=bound_attribute,
+        type_code=type_code,
+        tab_group_name=tab_group_name,
+    )
+    dialog.controls.append(control)
+    ert_writer.update_ert_dialog(_edit_path, name, dialog)
+    _ert_loader.rescan()
+    return f"Элемент управления id={control.id} добавлен в форму обработки '{name}'."
+
+
+def update_ert_dialog_control(
+    name: str,
+    control_id: int,
+    caption: str | None = None,
+    control_class: str | None = None,
+    x: int | None = None,
+    y: int | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    action: str | None = None,
+    bound_attribute: str | None = None,
+    type_code: str | None = None,
+    tab_group_name: str | None = None,
+) -> str:
+    """Update fields of an existing control on an edit-path .ert's dialog."""
+    if err := _require_edit_target(name):
+        return err
+    dialog = ert_writer.get_editable_dialog(_edit_path, name)
+    control = dialog.find_control(control_id)
+    if control is None:
+        return f"Элемент управления id={control_id} не найден в форме обработки '{name}'."
+    if caption is not None:
+        control.caption = caption
+    if control_class is not None:
+        control.control_class = control_class
+    if x is not None:
+        control.x = x
+    if y is not None:
+        control.y = y
+    if width is not None:
+        control.width = width
+    if height is not None:
+        control.height = height
+    if action is not None:
+        control.action = action
+    if bound_attribute is not None:
+        control.bound_attribute = bound_attribute
+    if type_code is not None:
+        control.type_code = type_code
+    if tab_group_name is not None:
+        control.tab_group_name = tab_group_name
+    ert_writer.update_ert_dialog(_edit_path, name, dialog)
+    _ert_loader.rescan()
+    return f"Элемент управления id={control_id} формы обработки '{name}' обновлён."
+
+
+def update_ert_print_form(name: str, rows: list[list[str]]) -> str:
+    """Replace the print form (Page.1/MOXCEL table) of an existing edit-path .ert
+    with a simple grid of cell text (no formatting/objects)."""
+    if err := _require_edit_target(name):
+        return err
+    ert_writer.update_ert_print_form(_edit_path, name, rows)
+    _ert_loader.rescan()
+    return f"Печатная форма обработки '{name}' обновлена ({len(rows)} строк)."
+
+
+def remove_ert_dialog_control(name: str, control_id: int) -> str:
+    """Remove a control from an existing edit-path .ert's dialog."""
+    if err := _require_edit_target(name):
+        return err
+    dialog = ert_writer.get_editable_dialog(_edit_path, name)
+    control = dialog.find_control(control_id)
+    if control is None:
+        return f"Элемент управления id={control_id} не найден в форме обработки '{name}'."
+    dialog.controls.remove(control)
+    ert_writer.update_ert_dialog(_edit_path, name, dialog)
+    _ert_loader.rescan()
+    return f"Элемент управления id={control_id} удалён из формы обработки '{name}'."
+
+
+_SQL_DISABLED_MSG = (
+    "Прямые SQL-запросы к MSSQL отключены: сервер запущен без --allow-sql. "
+    "Перезапустите сервер с параметром --allow-sql для включения "
+    "инструмента execute_sql_query."
+)
+
+
+def set_sql_allowed(value: bool) -> None:
+    """Enable/disable execute_sql_query. Called at startup from --allow-sql."""
+    global _sql_allowed
+    _sql_allowed = value
+
+
+def sql_allowed() -> bool:
+    return _sql_allowed
+
+
+def _config_dir() -> Path | None:
+    """Directory the current 1Cv7.MD was loaded from, if any."""
+    if _md_path:
+        return Path(_md_path).resolve().parent
+    if _data_dir is not None:
+        return _data_dir
+    return None
+
+
+def execute_sql_query(query: str, max_rows: int = 200) -> str:
+    """Run a single read-only SQL (SELECT/CTE) query against the MSSQL
+    database behind the currently loaded 1C base and return the result as
+    text. Requires --allow-sql at startup and a base directory containing
+    1Cv7.DBA (i.e. typically only available with --basepath pointed at a
+    real 1C base, not just an uploaded 1Cv7.MD snapshot)."""
+    if not _sql_allowed:
+        return _SQL_DISABLED_MSG
+
+    config_dir = _config_dir()
+    if config_dir is None:
+        return _NOT_LOADED_MSG
+
+    dba_path = mssql_dba.find_dba_file(config_dir)
+    if dba_path is None:
+        return (
+            f"Файл 1Cv7.DBA не найден в каталоге базы ({config_dir}). "
+            "Прямые SQL-запросы доступны только для реальной базы 1С "
+            "(--basepath), содержащей этот файл."
+        )
+
+    try:
+        assert_readonly_select(query)
+    except ValueError as e:
+        return f"Запрос отклонён: {e}"
+
+    try:
+        result = mssql_client.run_select_query(dba_path, query, max_rows)
+    except mssql_client.QueryExecutionError as e:
+        return str(e)
+
+    if not result.columns:
+        return "Запрос выполнен, результат пуст (нет колонок)."
+
+    lines = [" | ".join(result.columns)]
+    for row in result.rows:
+        lines.append(" | ".join("" if v is None else str(v) for v in row))
+    if not result.rows:
+        lines.append("(нет строк)")
+    if result.truncated:
+        lines.append(f"\n... результат обрезан до {max_rows} строк.")
+    return "\n".join(lines)

@@ -1,0 +1,61 @@
+stages:
+  - build
+
+build-windows:
+  stage: build
+  tags:
+    - windows
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+  before_script:
+    - powershell -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+    - $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+  script:
+    - uv sync --extra build
+    - uv run pyinstaller packaging/mcp_1c77.spec --clean --noconfirm
+    - $VERSION_TAG = uv version --short
+    - Move-Item dist/mcp-1c77 "dist/mcp-1c77-$VERSION_TAG"
+  artifacts:
+    paths:
+      - dist/mcp-1c77-*/
+    #expire_in: 1 week
+
+build_to_yandex:
+  stage: build
+  #services:
+  #  - docker:24.0.7-dind
+  variables:
+    # Собираем полный путь к приватному образу в Яндексе
+    IMAGE_NAME: cr.yandex/$YC_REGISTRY_ID/$CI_PROJECT_NAME
+  before_script:
+    # Авторизация в Yandex Container Registry через файл ключа
+    - cat "$YC_KEY" | docker login --username json_key --password-stdin cr.yandex
+  script:
+    # Сборка образа
+    - docker build -t $IMAGE_NAME:latest .
+    #- docker tag $IMAGE_NAME:latest $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+    # Публикация в приватный реестр Яндекса
+    - docker push $IMAGE_NAME:latest
+    #- docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+  only:
+    - master
+
+build_develop_to_yandex:
+  stage: build
+  #services:
+  #  - docker:24.0.7-dind
+  variables:
+    # Собираем полный путь к приватному образу в Яндексе
+    IMAGE_NAME: cr.yandex/$YC_REGISTRY_ID/$CI_PROJECT_NAME
+  before_script:
+    # Авторизация в Yandex Container Registry через файл ключа
+    - cat "$YC_KEY" | docker login --username json_key --password-stdin cr.yandex
+  script:
+    # Сборка образа
+    - docker build -t $IMAGE_NAME:develop .
+    #- docker tag $IMAGE_NAME:develop $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+    # Публикация в приватный реестр Яндекса
+    - docker push $IMAGE_NAME:develop
+    #- docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+  only:
+    - develop
