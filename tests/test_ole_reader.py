@@ -108,7 +108,7 @@ def test_strip_header_single_ff():
 
 
 def test_strip_header_triple_ff():
-    # 3 × 0xFF + 4 bytes length + data
+    # 1 × 0xFF marker + 0xFFFF escalation sentinel + 4 bytes length + data
     text = b'hello world'
     length = len(text)
     header = b'\xff\xff\xff' + length.to_bytes(4, 'little')
@@ -118,6 +118,19 @@ def test_strip_header_triple_ff():
 
 def test_strip_header_empty():
     assert ole_reader._strip_header(b'') == b''
+
+
+def test_strip_header_length_low_byte_0xff():
+    # Regression: a real single-marker header (1 x 0xFF + 2-byte length)
+    # whose length's low byte is coincidentally 0xFF (e.g. 255) must not be
+    # mistaken for a 2-marker/escalated header — the old greedy "count
+    # leading 0xFF bytes" implementation did exactly that and silently
+    # dropped the first 2 bytes of content.
+    text = b'{"Dialogs",' + b'x' * 244  # len(text) == 255 == 0x00FF
+    assert len(text) == 255
+    header = b'\xff' + len(text).to_bytes(2, 'little')
+    data = header + text
+    assert ole_reader._strip_header(data) == text
 
 
 # --- Standalone external processing (.ert) tests ---
