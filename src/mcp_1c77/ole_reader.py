@@ -145,8 +145,20 @@ def list_all_module_streams(ole: olefile.OleFileIO) -> list[dict[str, str]]:
 def _strip_header(data: bytes) -> bytes:
     """Strip the length header from a text stream.
 
-    Header format: N bytes of 0xFF, then (N+1) bytes LE integer length.
-    If the data starts with '{', there's no header.
+    Header format: one 0xFF marker byte, then a 2-byte LE length. If that
+    2-byte field reads as the sentinel 0xFFFF (length too large to fit —
+    seen for streams over ~64 KB, e.g. `1Cv7.MD`'s `Main MetaData Stream`),
+    a 4-byte LE length follows instead of the text.
+
+    This is NOT "N leading 0xFF bytes, then (N+1)-byte length" as earlier
+    assumed — that greedy-count reading mis-parses any stream whose real
+    2-byte length happens to end in 0xFF (e.g. length 255: marker 0xFF +
+    LE bytes FF 00 look like *two* marker bytes), silently dropping the
+    first 2 bytes of content. The sentinel-escalation scheme below matches
+    every real sample checked (.ert corpus + `1Cv7.MD`) and mirrors the
+    identical 0xFFFF-escalation convention `moxel_writer._count` uses.
+
+    If the data starts with '{', there's no header at all.
     """
     if not data:
         return data
@@ -154,19 +166,15 @@ def _strip_header(data: bytes) -> bytes:
     if data[0] == 0x7B:  # '{' - no header
         return data
 
-    # Count leading 0xFF bytes
-    n_ff = 0
-    while n_ff < len(data) and data[n_ff] == 0xFF:
-        n_ff += 1
-
-    if n_ff == 0:
+    if data[0] != 0xFF or len(data) < 3:
         return data
 
-    # Length is stored in (n_ff + 1) bytes after the 0xFF bytes
-    len_bytes = n_ff + 1
-    header_size = n_ff + len_bytes
-
-    if header_size > len(data):
-        return data
+    sentinel = int.from_bytes(data[1:3], "little")
+    if sentinel != 0xFFFF:
+        header_size = 3
+    else:
+        if len(data) < 7:
+            return data
+        header_size = 7
 
     return data[header_size:]

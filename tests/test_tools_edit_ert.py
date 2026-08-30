@@ -134,7 +134,9 @@ def test_replace_ert_module_lines_workflow(tmp_path):
 
     result = tools.replace_ert_module_lines("LinesTools", 2, 2, "newline2")
     assert "обновлён" in result
-    assert tools.get_ert_module("LinesTools") == "line1\nnewline2\nline3"
+    # MD Programm text is always stored with \r\n on disk (matches every
+    # real 1C 7.7 sample; see ert_writer._encode_module).
+    assert tools.get_ert_module("LinesTools").replace("\r\n", "\n") == "line1\nnewline2\nline3"
 
 
 def test_replace_ert_module_lines_out_of_range_returns_error(tmp_path):

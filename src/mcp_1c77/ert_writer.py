@@ -77,18 +77,29 @@ def _make_container_profile() -> bytes:
 
 
 def _encode_module(text: str) -> bytes:
+    # 1C 7.7's module editor expects CRLF line endings (every real sample in
+    # work/ExtForms/*.ert uses \r\n exclusively) — feeding it LF-only text
+    # (the normal output of any text-generation tool) reproducibly crashes
+    # the Configurator with no error message the instant the module tab is
+    # opened. Normalize to \n first so a source that already has \r\n
+    # doesn't end up with \r\r\n.
+    normalized = text.replace("\r\n", "\n").replace("\n", "\r\n")
     compressor = zlib.compressobj(level=9, wbits=-15)
-    data = compressor.compress(text.encode("windows-1251", errors="replace"))
+    data = compressor.compress(normalized.encode("windows-1251", errors="replace"))
     data += compressor.flush()
     return data
 
 
 def _decode_module(data: bytes) -> str:
+    # Inverse of _encode_module's normalization: callers (patch/append/line
+    # editing) work with plain \n, matching how any Python text tool treats
+    # strings; \r\n is a wire-format detail reintroduced only on encode.
     try:
         decompressed = zlib.decompress(data, -15)
-        return decompressed.decode("windows-1251", errors="replace")
+        text = decompressed.decode("windows-1251", errors="replace")
     except zlib.error:
-        return data.decode("windows-1251", errors="replace")
+        text = data.decode("windows-1251", errors="replace")
+    return text.replace("\r\n", "\n")
 
 
 def _encode_text_with_header(text: str) -> bytes:
