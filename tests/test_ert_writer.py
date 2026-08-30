@@ -25,6 +25,24 @@ def test_create_ert_file_then_read_back(tmp_path):
         ole.close()
 
 
+def test_create_ert_module_stream_uses_crlf_on_disk(tmp_path):
+    # Regression: every real 1C 7.7 sample stores MD Programm text with
+    # \r\n; LF-only text (the normal output of any text tool) crashed the
+    # Configurator with no error message the moment the module tab opened.
+    path = ert_writer.create_ert_file(
+        tmp_path, "CrlfProc", module_text="Процедура X()\nY = 1;\nКонецПроцедуры"
+    )
+    ole = ole_reader.open_md_file(path)
+    try:
+        streams = ole_reader.get_root_object_streams(ole)
+        module = ole_reader.read_module_text(ole, streams["module"])
+    finally:
+        ole.close()
+    assert "\r\n" in module
+    assert "\r\r\n" not in module
+    assert module.replace("\r\n", "\n") == "Процедура X()\nY = 1;\nКонецПроцедуры"
+
+
 def test_create_ert_refuses_existing(tmp_path):
     ert_writer.create_ert_file(tmp_path, "Dup")
     with pytest.raises(FileExistsError):
