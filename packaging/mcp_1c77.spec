@@ -30,6 +30,7 @@ SRC = os.path.join(ROOT, "src")
 
 datas = [
     (os.path.join(SRC, "mcp_1c77", "static", "index.html"), os.path.join("mcp_1c77", "static")),
+    (os.path.join(SRC, "mcp_1c77", "templates", "*.bin"), os.path.join("mcp_1c77", "templates")),
 ]
 binaries = []
 hiddenimports = []
