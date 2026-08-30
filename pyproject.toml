@@ -14,6 +14,8 @@ dependencies = [
     "uvicorn>=0.30",
     "python-multipart>=0.0.9",
     "starlette>=0.37",
+    "python-tds>=1.15",
+    "sqlparse>=0.5",
 ]
 
 [project.optional-dependencies]
@@ -29,7 +31,7 @@ build = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-mcp_1c77 = ["static/*.html"]
+mcp_1c77 = ["static/*.html", "templates/*.bin"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
