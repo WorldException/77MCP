@@ -19,7 +19,6 @@ avoids ever landing a half-updated container on disk.
 from __future__ import annotations
 
 import re
-import uuid
 import zlib
 from pathlib import Path
 
@@ -45,12 +44,11 @@ CONTAINER_CONTENTS_TEMPLATE = (
     b'{"Moxcel.Worksheet","Page.1","Moxel WorkPlace",""}}\n'
 )
 
-_CONTAINER_PROFILE_UUID_PLACEHOLDER = b"D41D8CD98F00B204E9800998ECF8427E"
 _CONTAINER_PROFILE_TEMPLATE = (
     b'{\n'
     b'{"MoxelName","",""},\n'
     b'{"MoxelPos","0",""},\n'
-    b'{"UUID","' + _CONTAINER_PROFILE_UUID_PLACEHOLDER + b'",""},\n'
+    b'{"UUID","D41D8CD98F00B204E9800998ECF8427E",""},\n'
     b'{"Entry","1",""},\n'
     b'{"MoxelNextMode","1",""}}'
 )
@@ -75,8 +73,7 @@ def _validate_name(name: str) -> None:
 
 
 def _make_container_profile() -> bytes:
-    new_uuid = uuid.uuid4().hex.upper().encode("ascii")
-    return _CONTAINER_PROFILE_TEMPLATE.replace(_CONTAINER_PROFILE_UUID_PLACEHOLDER, new_uuid)
+    return _CONTAINER_PROFILE_TEMPLATE
 
 
 def _encode_module(text: str) -> bytes:
