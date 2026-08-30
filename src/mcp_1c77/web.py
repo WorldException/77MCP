@@ -31,6 +31,10 @@ _EXTRA_EXT_DIRS = [d for d in os.environ.get("MCP_EXT_DIRS", "").split(os.pathse
 # created/edited via MCP tools. When unset, those tools stay disabled.
 EDIT_PATH = os.environ.get("MCP_EDIT_PATH")
 
+# MCP_ALLOW_SQL: opt-in for execute_sql_query (direct read-only MSSQL access
+# to the live 1C database). Disabled unless --allow-sql was passed.
+ALLOW_SQL = bool(os.environ.get("MCP_ALLOW_SQL"))
+
 
 def _resolve_ext_dirs() -> list[str]:
     """Resolve directories to scan for external processing (.ert) files.
@@ -109,6 +113,7 @@ async def api_status(request: Request) -> JSONResponse:
         "ert_count": len(tools.get_ert_loader().list_files()),
         "readonly": READONLY,
         "edit_path": str(Path(EDIT_PATH).resolve()) if EDIT_PATH else None,
+        "allow_sql": ALLOW_SQL,
     }
 
     loader = tools.get_loader()
@@ -148,6 +153,7 @@ async def startup() -> None:
     if EDIT_PATH:
         os.makedirs(EDIT_PATH, exist_ok=True)
         tools.init_edit_path(EDIT_PATH)
+    tools.set_sql_allowed(ALLOW_SQL)
     tools.init_ert_dirs(_resolve_ext_dirs())
     md_path = os.path.join(CONFIG_DIR, MD_FILENAME)
     if os.path.exists(md_path):

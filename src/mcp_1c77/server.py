@@ -633,3 +633,24 @@ def remove_ert_dialog_control(name: str, control_id: int) -> str:
         control_id: id удаляемого элемента управления (см. list_ert_dialog_controls).
     """
     return tools.remove_ert_dialog_control(name, control_id)
+
+
+@mcp.tool()
+def execute_sql_query(query: str, max_rows: int = 200) -> str:
+    """Выполнить прямой SQL-запрос к MSSQL базе данных текущей загруженной
+    конфигурации 1С 7.7. Требует --allow-sql при запуске сервера и файл
+    1Cv7.DBA в каталоге базы (доступно только для реальной базы через
+    --basepath, не для произвольно загруженного 1Cv7.MD).
+
+    Разрешены только запросы на чтение: один оператор SELECT (в т.ч. с
+    предваряющим WITH/CTE). Любые операторы изменения данных или структуры
+    (INSERT, UPDATE, DELETE, MERGE, CREATE, ALTER, DROP, TRUNCATE, EXEC,
+    вызовы sp_/xp_-процедур и т.п.), а также несколько операторов через ';'
+    — отклоняются до подключения к серверу.
+
+    Args:
+        query: Текст SQL-запроса (один SELECT-оператор).
+        max_rows: Максимум строк в результате (по умолчанию 200); при
+                  превышении результат обрезается с пометкой об этом.
+    """
+    return tools.execute_sql_query(query, max_rows)

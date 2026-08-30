@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from pathlib import Path
 
-from . import ert_writer, sql_naming
+from . import ert_writer, mssql_client, mssql_dba, sql_naming
 from .dialog_model import DialogControl
 from .dialog_parser import default_dialog, parse_dialog, serialize_dialog
 from .ert_loader import ErtLoader
 from .metadata import TYPE_CODES, ConfigurationLoader
 from .models import ModuleProcedure, ModuleStructure
+from .sql_guard import assert_readonly_select
 
 # Global loader instance shared across all tool calls
 _loader = ConfigurationLoader()
@@ -25,6 +26,10 @@ _ert_loader = ErtLoader()
 
 # Optional writable directory for creating/editing .ert files via MCP.
 _edit_path: Path | None = None
+
+# Whether direct read-only MSSQL queries via execute_sql_query are allowed.
+# Requires --allow-sql at startup — this reaches the live 1C database.
+_sql_allowed: bool = False
 
 
 def set_data_dir(path: str) -> None:
@@ -1724,3 +1729,73 @@ def remove_ert_dialog_control(name: str, control_id: int) -> str:
     ert_writer.update_ert_dialog(_edit_path, name, dialog)
     _ert_loader.rescan()
     return f"Элемент управления id={control_id} удалён из формы обработки '{name}'."
+
+
+_SQL_DISABLED_MSG = (
+    "Прямые SQL-запросы к MSSQL отключены: сервер запущен без --allow-sql. "
+    "Перезапустите сервер с параметром --allow-sql для включения "
+    "инструмента execute_sql_query."
+)
+
+
+def set_sql_allowed(value: bool) -> None:
+    """Enable/disable execute_sql_query. Called at startup from --allow-sql."""
+    global _sql_allowed
+    _sql_allowed = value
+
+
+def sql_allowed() -> bool:
+    return _sql_allowed
+
+
+def _config_dir() -> Path | None:
+    """Directory the current 1Cv7.MD was loaded from, if any."""
+    if _md_path:
+        return Path(_md_path).resolve().parent
+    if _data_dir is not None:
+        return _data_dir
+    return None
+
+
+def execute_sql_query(query: str, max_rows: int = 200) -> str:
+    """Run a single read-only SQL (SELECT/CTE) query against the MSSQL
+    database behind the currently loaded 1C base and return the result as
+    text. Requires --allow-sql at startup and a base directory containing
+    1Cv7.DBA (i.e. typically only available with --basepath pointed at a
+    real 1C base, not just an uploaded 1Cv7.MD snapshot)."""
+    if not _sql_allowed:
+        return _SQL_DISABLED_MSG
+
+    config_dir = _config_dir()
+    if config_dir is None:
+        return _NOT_LOADED_MSG
+
+    dba_path = mssql_dba.find_dba_file(config_dir)
+    if dba_path is None:
+        return (
+            f"Файл 1Cv7.DBA не найден в каталоге базы ({config_dir}). "
+            "Прямые SQL-запросы доступны только для реальной базы 1С "
+            "(--basepath), содержащей этот файл."
+        )
+
+    try:
+        assert_readonly_select(query)
+    except ValueError as e:
+        return f"Запрос отклонён: {e}"
+
+    try:
+        result = mssql_client.run_select_query(dba_path, query, max_rows)
+    except mssql_client.QueryExecutionError as e:
+        return str(e)
+
+    if not result.columns:
+        return "Запрос выполнен, результат пуст (нет колонок)."
+
+    lines = [" | ".join(result.columns)]
+    for row in result.rows:
+        lines.append(" | ".join("" if v is None else str(v) for v in row))
+    if not result.rows:
+        lines.append("(нет строк)")
+    if result.truncated:
+        lines.append(f"\n... результат обрезан до {max_rows} строк.")
+    return "\n".join(lines)
