@@ -29,6 +29,9 @@ def test_write_tools_disabled_without_edit_path():
     assert "отключено" in tools.remove_ert_dialog_control("X", 1)
     assert "отключено" in tools.set_ert_dialog_frame("X")
     assert "отключено" in tools.update_ert_print_form("X", [["a"]])
+    assert "отключено" in tools.add_ert_print_form_section("X", "horizontal", "Шапка", 0, 0)
+    assert "отключено" in tools.update_ert_print_form_section("X", "horizontal", "Шапка")
+    assert "отключено" in tools.remove_ert_print_form_section("X", "horizontal", "Шапка")
 
 
 def test_full_workflow_via_tools_layer(tmp_path):
@@ -164,6 +167,60 @@ def test_print_form_workflow(tmp_path):
     result = tools.get_ert_print_form("Report1")
     assert "Наименование" in result
     assert "Товар1" in result
+
+
+def test_print_form_sections_workflow(tmp_path):
+    tools.init_edit_path(str(tmp_path))
+    tools.init_ert_dirs([str(tmp_path)])
+
+    tools.create_ert_file("Report2")
+    tools.update_ert_print_form(
+        "Report2", [["Наименование", "Кол-во"], ["Товар1", "5"]]
+    )
+
+    result = tools.list_ert_print_form_sections("Report2")
+    assert "(нет)" in result
+
+    result = tools.add_ert_print_form_section("Report2", "horizontal", "Шапка", 0, 0)
+    assert "добавлена" in result
+    result = tools.add_ert_print_form_section("Report2", "horizontal", "Строка", 1, 1)
+    assert "добавлена" in result
+    result = tools.add_ert_print_form_section("Report2", "vertical", "Основная", 0, 1, level=1)
+    assert "добавлена" in result
+
+    # duplicate name in the same orientation is refused
+    result = tools.add_ert_print_form_section("Report2", "horizontal", "Шапка", 2, 2)
+    assert "уже существует" in result
+
+    # invalid orientation is refused
+    result = tools.add_ert_print_form_section("Report2", "diagonal", "X", 0, 0)
+    assert "Недопустимая ориентация" in result
+
+    listing = tools.list_ert_print_form_sections("Report2")
+    assert "Шапка" in listing and "Строка" in listing and "Основная" in listing
+
+    # cell data set earlier must survive the section edits
+    form = tools.get_ert_print_form("Report2")
+    assert "Наименование" in form
+    assert "Товар1" in form
+
+    result = tools.update_ert_print_form_section(
+        "Report2", "horizontal", "Шапка", end=1, new_name="Заголовок"
+    )
+    assert "обновлена" in result
+    listing = tools.list_ert_print_form_sections("Report2")
+    assert "Заголовок" in listing and "Шапка" not in listing
+
+    result = tools.update_ert_print_form_section("Report2", "horizontal", "Нет такой")
+    assert "не найдена" in result
+
+    result = tools.remove_ert_print_form_section("Report2", "vertical", "Основная")
+    assert "удалена" in result
+    listing = tools.list_ert_print_form_sections("Report2")
+    assert "Основная" not in listing
+
+    result = tools.remove_ert_print_form_section("Report2", "vertical", "Основная")
+    assert "не найдена" in result
 
 
 def test_update_ert_print_form_disabled_without_edit_path():

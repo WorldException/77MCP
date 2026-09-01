@@ -14,6 +14,8 @@ from .dialog_parser import default_dialog, parse_dialog, serialize_dialog
 from .ert_loader import ErtLoader
 from .metadata import TYPE_CODES, ConfigurationLoader
 from .models import ModuleProcedure, ModuleStructure
+from .moxel_model import MoxelSection
+from .moxel_writer import MoxelWriteError
 from .sql_guard import assert_readonly_select
 
 # Global loader instance shared across all tool calls
@@ -1729,6 +1731,131 @@ def remove_ert_dialog_control(name: str, control_id: int) -> str:
     ert_writer.update_ert_dialog(_edit_path, name, dialog)
     _ert_loader.rescan()
     return f"Элемент управления id={control_id} удалён из формы обработки '{name}'."
+
+
+_ORIENTATIONS = ("vertical", "horizontal")
+
+
+def _orientation_error(orientation: str) -> str | None:
+    if orientation not in _ORIENTATIONS:
+        return (
+            f"Недопустимая ориентация секции: '{orientation}'. "
+            f"Допустимые значения: {', '.join(_ORIENTATIONS)}."
+        )
+    return None
+
+
+def _section_list(sheet, orientation: str) -> list[MoxelSection]:
+    return sheet.vertical_sections if orientation == "vertical" else sheet.horizontal_sections
+
+
+def _find_section(sheet, orientation: str, section_name: str) -> MoxelSection | None:
+    return next((s for s in _section_list(sheet, orientation) if s.name == section_name), None)
+
+
+def list_ert_print_form_sections(name: str) -> str:
+    """List the named vertical/horizontal sections of an external processing's
+    print form (Page.1/MOXCEL), used by 1C's `Таблица.ВывестиСекцию()`."""
+    entry = _ert_loader.find(name)
+    if entry is None:
+        return f"Обработка '{name}' не найдена."
+    try:
+        sheet = ert_writer.get_print_form(Path(entry.path))
+    except FileNotFoundError:
+        return f"Печатная форма обработки '{name}' не найдена."
+    except Exception as e:
+        return f"Не удалось разобрать печатную форму обработки '{name}': {e}"
+
+    lines = [f"# Обработка.{name}: секции печатной формы", ""]
+    for label, orientation in (("Горизонтальные (по строкам)", "horizontal"), ("Вертикальные (по колонкам)", "vertical")):
+        sections = _section_list(sheet, orientation)
+        lines.append(f"{label}: {len(sections)}")
+        if not sections:
+            lines.append("  (нет)")
+        for s in sections:
+            lines.append(f"  - \"{s.name}\": {s.begin}..{s.end} (уровень {s.level})")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def add_ert_print_form_section(
+    name: str, orientation: str, section_name: str, begin: int, end: int, level: int = 0
+) -> str:
+    """Add a new named section to an existing edit-path .ert's print form."""
+    if err := _require_edit_target(name):
+        return err
+    if err := _orientation_error(orientation):
+        return err
+    sheet = ert_writer.get_editable_print_form(_edit_path, name)
+    if _find_section(sheet, orientation, section_name) is not None:
+        return (
+            f"Секция \"{section_name}\" уже существует среди "
+            f"{'вертикальных' if orientation == 'vertical' else 'горизонтальных'} секций формы '{name}'."
+        )
+    _section_list(sheet, orientation).append(
+        MoxelSection(begin=begin, end=end, level=level, name=section_name)
+    )
+    try:
+        ert_writer.update_ert_print_form_sheet(_edit_path, name, sheet)
+    except MoxelWriteError as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Секция \"{section_name}\" добавлена в печатную форму обработки '{name}'."
+
+
+def update_ert_print_form_section(
+    name: str,
+    orientation: str,
+    section_name: str,
+    begin: int | None = None,
+    end: int | None = None,
+    level: int | None = None,
+    new_name: str | None = None,
+) -> str:
+    """Update fields of an existing named section on an edit-path .ert's print form."""
+    if err := _require_edit_target(name):
+        return err
+    if err := _orientation_error(orientation):
+        return err
+    sheet = ert_writer.get_editable_print_form(_edit_path, name)
+    section = _find_section(sheet, orientation, section_name)
+    if section is None:
+        return f"Секция \"{section_name}\" не найдена среди {orientation} секций формы '{name}'."
+    if new_name is not None and _find_section(sheet, orientation, new_name) is not None:
+        return f"Секция \"{new_name}\" уже существует среди {orientation} секций формы '{name}'."
+    if begin is not None:
+        section.begin = begin
+    if end is not None:
+        section.end = end
+    if level is not None:
+        section.level = level
+    if new_name is not None:
+        section.name = new_name
+    try:
+        ert_writer.update_ert_print_form_sheet(_edit_path, name, sheet)
+    except MoxelWriteError as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Секция \"{section_name}\" формы '{name}' обновлена."
+
+
+def remove_ert_print_form_section(name: str, orientation: str, section_name: str) -> str:
+    """Remove a named section from an existing edit-path .ert's print form."""
+    if err := _require_edit_target(name):
+        return err
+    if err := _orientation_error(orientation):
+        return err
+    sheet = ert_writer.get_editable_print_form(_edit_path, name)
+    section = _find_section(sheet, orientation, section_name)
+    if section is None:
+        return f"Секция \"{section_name}\" не найдена среди {orientation} секций формы '{name}'."
+    _section_list(sheet, orientation).remove(section)
+    try:
+        ert_writer.update_ert_print_form_sheet(_edit_path, name, sheet)
+    except MoxelWriteError as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Секция \"{section_name}\" удалена из печатной формы обработки '{name}'."
 
 
 _SQL_DISABLED_MSG = (

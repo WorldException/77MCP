@@ -214,3 +214,29 @@ def test_update_ert_print_form_preserves_other_streams(tmp_path):
     sheet = ert_writer.get_print_form(path)
     assert sheet.cell_text(0, 0) == "a"
     assert sheet.cell_text(0, 1) == "b"
+
+
+def test_update_ert_print_form_sheet_preserves_cells_and_other_streams(tmp_path):
+    from mcp_1c77.moxel_model import MoxelSection
+
+    path = ert_writer.create_ert_file(
+        tmp_path, "SectionsEdit",
+        print_form_rows=[["Наименование", "Кол-во"], ["Товар1", "5"]],
+    )
+    before = ert_writer.load_editable_streams(path)
+
+    sheet = ert_writer.get_editable_print_form(tmp_path, "SectionsEdit")
+    sheet.horizontal_sections.append(MoxelSection(begin=0, end=0, level=0, name="Шапка"))
+    ert_writer.update_ert_print_form_sheet(tmp_path, "SectionsEdit", sheet)
+
+    after = ert_writer.load_editable_streams(path)
+    for name in before:
+        if name == "Page.1":
+            assert before[name] != after[name]
+        else:
+            assert before[name] == after[name], name
+
+    reloaded = ert_writer.get_print_form(path)
+    assert reloaded.cell_text(0, 0) == "Наименование"
+    assert reloaded.cell_text(1, 1) == "5"
+    assert reloaded.horizontal_sections == [MoxelSection(begin=0, end=0, level=0, name="Шапка")]

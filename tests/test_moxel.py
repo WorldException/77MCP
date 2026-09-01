@@ -5,7 +5,7 @@ import os
 import pytest
 
 from mcp_1c77 import ole_reader
-from mcp_1c77.moxel_model import CellFormat, FLAG_COLUMN_WIDTH, MoxelSheet
+from mcp_1c77.moxel_model import CellFormat, FLAG_COLUMN_WIDTH, MoxelSection, MoxelSheet
 from mcp_1c77.moxel_reader import parse_moxel
 from mcp_1c77.moxel_writer import MoxelWriteError, simple_table, write_moxel
 
@@ -57,6 +57,21 @@ def test_simple_table_round_trip():
     assert back.cell_text(3, 2) == "200"
     assert back.cell_text(2, 0) is None  # blank row has no stored cells
     assert {k: v.format.w2 for k, v in back.columns.items()} == {0: 150, 1: 50, 2: 80}
+
+
+def test_sections_round_trip():
+    sheet = simple_table([["Наименование", "Кол-во"], ["Товар1", "5"]])
+    sheet.horizontal_sections = [
+        MoxelSection(begin=0, end=0, level=0, name="Шапка"),
+        MoxelSection(begin=1, end=1, level=0, name="Строка"),
+    ]
+    sheet.vertical_sections = [
+        MoxelSection(begin=0, end=1, level=1, name="Основная"),
+    ]
+
+    back = parse_moxel(write_moxel(sheet))
+    assert back.horizontal_sections == sheet.horizontal_sections
+    assert back.vertical_sections == sheet.vertical_sections
 
 
 def test_write_moxel_refuses_objects():

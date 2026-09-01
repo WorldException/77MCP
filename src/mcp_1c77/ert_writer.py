@@ -315,6 +315,32 @@ def get_print_form(path: Path) -> MoxelSheet:
     return parse_moxel(data)
 
 
+def get_editable_print_form(edit_path: Path, name: str) -> MoxelSheet:
+    """Load and parse the Page.1 (MOXCEL print form) of an existing edit-path .ert."""
+    _validate_name(name)
+    target = edit_path / f"{name}.ert"
+    if not target.exists():
+        raise FileNotFoundError(f"Обработка '{name}' не найдена в {edit_path}.")
+    return get_print_form(target)
+
+
+def update_ert_print_form_sheet(edit_path: Path, name: str, sheet: MoxelSheet) -> None:
+    """Replace only the `Page.1` (MOXCEL print form) stream of an existing
+    edit-path .ert with an already-built `MoxelSheet` (e.g. the result of
+    mutating the sheet returned by `get_editable_print_form`), preserving
+    the rest of the sheet (cells/formatting/etc) untouched.
+
+    Raises `moxel_writer.MoxelWriteError` unchanged if `sheet.objects` is
+    non-empty (embedded pictures/OLE/lines can't be (re)written)."""
+    _validate_name(name)
+    target = edit_path / f"{name}.ert"
+    if not target.exists():
+        raise FileNotFoundError(f"Обработка '{name}' не найдена в {edit_path}.")
+    streams = load_editable_streams(target)
+    streams["Page.1"] = write_moxel(sheet)
+    ole_writer.write_compound_file(target, streams)
+
+
 def get_editable_dialog(edit_path: Path, name: str) -> Dialog:
     """Load and parse the Dialog Stream of an existing edit-path .ert."""
     _validate_name(name)
