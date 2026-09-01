@@ -7,13 +7,15 @@ build-windows:
     - windows
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
+  variables:
+    GIT_DEPTH: 0
   before_script:
     - powershell -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
     - $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
   script:
     - uv sync --extra build
     - uv run pyinstaller packaging/mcp_1c77.spec --clean --noconfirm
-    - $VERSION_TAG = uv version --short
+    - $VERSION_TAG = (git describe --tags --abbrev=0 origin/master) -replace '^v', ''
     - Move-Item dist/mcp-1c77 "dist/mcp-1c77-$VERSION_TAG"
   artifacts:
     paths:
