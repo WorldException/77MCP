@@ -94,6 +94,19 @@ def test_catalog_attributes(loader):
         pytest.fail("Валюты catalog not found")
 
 
+def test_catalog_attribute_periodic_flag(loader):
+    """Валюты.Курс is a well-known periodic requisite; ПолнНаименование is not."""
+    config = loader.config
+    for c in config.catalogs:
+        if c.name == "Валюты":
+            attrs = {a.name: a for a in c.attributes}
+            assert attrs["Курс"].periodic is True
+            assert attrs["ПолнНаименование"].periodic is False
+            break
+    else:
+        pytest.fail("Валюты catalog not found")
+
+
 def test_document_head_and_table_fields(loader):
     config = loader.config
     for d in config.documents:

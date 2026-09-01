@@ -450,7 +450,7 @@ def _parse_catalog_attributes(node: BracketNode) -> list[Attribute]:
                 length=_safe_int(child.value_at(5)),
                 precision=_safe_int(child.value_at(6)),
                 ref_type_id=child.value_at(7),
-                periodic=child.value_at(8) == "1" if len(child.values) > 8 else False,
+                periodic=child.value_at(10) == "1" if len(child.values) > 10 else False,
             ))
     return attrs
 
