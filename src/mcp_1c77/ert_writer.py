@@ -1,14 +1,15 @@
 """Build/mutate standalone external processing (.ert) files.
 
-An .ert is a 7-stream OLE2/CFBF container (see docs/external-ert.md). Three
+An .ert is a 7-stream OLE2/CFBF container (see docs/external-ert.md). Five
 of those streams have content this project can meaningfully generate or
-edit: `MD Programm text` (BSL module), `Dialog Stream` (form), and
+edit: `MD Programm text` (BSL module), `Dialog Stream` (form),
+`Inplace description` ("Описание" — free-text help/reference for the
+object), `Page.1` (MOXCEL print form, see moxel_writer.py), and
 `Container.Profile` (just needs a fresh UUID on creation). The remaining
-four (`Container.Contents`, `Inplace description`, `Main MetaData Stream`,
-`Page.1`) are always copied byte-for-byte from a bundled real sample —
-they're either pure boilerplate or (for `Main MetaData Stream`/`Page.1`)
-grammars this project doesn't attempt to synthesize or validate; see
-docs/external-ert.md for the rationale.
+two (`Container.Contents`, `Main MetaData Stream`) are always copied
+byte-for-byte from a bundled real sample — pure boilerplate this project
+doesn't attempt to synthesize or validate; see docs/external-ert.md for
+the rationale.
 
 Every write here goes through `ole_writer.write_compound_file`, rebuilding
 the whole container from scratch — .ert files are small (tens to a couple
@@ -33,7 +34,6 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 PAGE1_TEMPLATE = (_TEMPLATES_DIR / "page1_empty.bin").read_bytes()
 MAIN_METADATA_TEMPLATE = (_TEMPLATES_DIR / "main_metadata_minimal.bin").read_bytes()
-INPLACE_DESCRIPTION_TEMPLATE = b"\x03\x00"
 
 CONTAINER_CONTENTS_TEMPLATE = (
     b'{"Container.Contents",'
@@ -113,18 +113,25 @@ def _encode_text_with_header(text: str) -> bytes:
 
 
 def build_new_ert_streams(
-    module_text: str, dialog: Dialog, print_form: MoxelSheet | None = None
+    module_text: str,
+    dialog: Dialog,
+    print_form: MoxelSheet | None = None,
+    description: str = "",
 ) -> dict[str, bytes]:
     """Assemble the full 7-stream set for a brand-new .ert file.
 
     `print_form`, if given, replaces the default empty `Page.1` template
     with a freshly built MOXCEL sheet (see moxel_writer.simple_table).
+    `description`, if given, becomes the processing's "Описание" (the
+    help/reference text 1C's Configurator shows for the object) — encoded
+    the same way as `MD Programm text` (see `_encode_module`); empty by
+    default, matching most processings in the sample corpus.
     """
     return {
         "Container.Contents": CONTAINER_CONTENTS_TEMPLATE,
         "Container.Profile": _make_container_profile(),
         "Dialog Stream": _encode_text_with_header(serialize_dialog(dialog)),
-        "Inplace description": INPLACE_DESCRIPTION_TEMPLATE,
+        "Inplace description": _encode_module(description),
         "MD Programm text": _encode_module(module_text),
         "Main MetaData Stream": MAIN_METADATA_TEMPLATE,
         "Page.1": write_moxel(print_form) if print_form is not None else PAGE1_TEMPLATE,
@@ -159,6 +166,7 @@ def create_ert_file(
     print_form_rows: list[list[str | dict]] | None = None,
     column_widths: list[int] | None = None,
     row_heights: list[int] | None = None,
+    description: str = "",
 ) -> Path:
     """Create a brand-new `<edit_path>/<name>.ert`. Refuses to overwrite.
 
@@ -167,7 +175,8 @@ def create_ert_file(
     cells with optional column widths/row heights (see
     moxel_writer.simple_table); otherwise the print form is left empty (the
     same default 1C itself uses for a new processing with no print form
-    configured).
+    configured). `description`, if given, becomes the "Описание" shown in
+    1C's Configurator (see build_new_ert_streams); empty by default.
     """
     _validate_name(name)
     target = edit_path / f"{name}.ert"
@@ -179,7 +188,7 @@ def create_ert_file(
         else None
     )
     streams = build_new_ert_streams(
-        module_text, dialog if dialog is not None else default_dialog(), print_form
+        module_text, dialog if dialog is not None else default_dialog(), print_form, description
     )
     ole_writer.write_compound_file(target, streams)
     return target
@@ -298,6 +307,29 @@ def update_ert_dialog(edit_path: Path, name: str, dialog: Dialog) -> None:
         raise FileNotFoundError(f"Обработка '{name}' не найдена в {edit_path}.")
     streams = load_editable_streams(target)
     streams["Dialog Stream"] = _encode_text_with_header(serialize_dialog(dialog))
+    ole_writer.write_compound_file(target, streams)
+
+
+def get_description(path: Path) -> str:
+    """Load and decode the "Описание" (Inplace description) of any .ert file
+    — the free-text help/reference shown for the object in 1C's
+    Configurator. Same compressed-text encoding as `MD Programm text`."""
+    ole = ole_reader.open_md_file(path)
+    try:
+        return ole_reader.read_module_text(ole, "Inplace description")
+    finally:
+        ole.close()
+
+
+def update_ert_description(edit_path: Path, name: str, text: str) -> None:
+    """Replace only the `Inplace description` ("Описание") stream of an
+    existing edit-path .ert."""
+    _validate_name(name)
+    target = edit_path / f"{name}.ert"
+    if not target.exists():
+        raise FileNotFoundError(f"Обработка '{name}' не найдена в {edit_path}.")
+    streams = load_editable_streams(target)
+    streams["Inplace description"] = _encode_module(text)
     ole_writer.write_compound_file(target, streams)
 
 

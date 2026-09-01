@@ -314,6 +314,19 @@ def get_ert_module(name: str, start_line: int = 0, end_line: int = 0) -> str:
 
 
 @mcp.tool()
+def get_ert_description(name: str) -> str:
+    """Текст блока "Описание" внешней обработки — справка/аннотация,
+    которую 1С:Конфигуратор показывает для объекта (что делает обработка,
+    как её использовать, для чего нужна). Работает для ЛЮБОЙ обработки (не
+    только из --edit-path) — это инструмент чтения.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+    """
+    return tools.get_ert_description(name)
+
+
+@mcp.tool()
 def search_in_ert_modules(query: str, context_lines: int = 0, limit: int = 200) -> str:
     """Полнотекстовый поиск подстроки по исходному коду модулей ВСЕХ найденных
     внешних обработок сразу (без учёта регистра) — используйте, когда нужно
@@ -407,6 +420,7 @@ def create_ert_file(
     print_form_rows: list[list[str | dict]] | None = None,
     column_widths: list[int] | None = None,
     row_heights: list[int] | None = None,
+    description: str = "",
 ) -> str:
     """Создать новую внешнюю обработку (.ert) в каталоге --edit-path.
     Требует запуска сервера с параметром --edit-path.
@@ -416,9 +430,10 @@ def create_ert_file(
     элементы управления на форму, update_ert_module, чтобы изменить код,
     update_ert_print_form, чтобы позже изменить печатную форму,
     set_ert_print_form_column_width/set_ert_print_form_row_height, чтобы
-    точечно поправить размеры без пересборки формы, и
+    точечно поправить размеры без пересборки формы,
     add_ert_print_form_section, чтобы задать именованные секции
-    ("Шапка"/"Строка"/"Подвал" и т.п.) для `Таблица.ВывестиСекцию()`.
+    ("Шапка"/"Строка"/"Подвал" и т.п.) для `Таблица.ВывестиСекцию()`, и
+    update_ert_description, чтобы позже изменить описание.
 
     Args:
         name: Имя новой обработки без расширения .ert (без '/', '\\', '..').
@@ -452,9 +467,17 @@ def create_ert_file(
                      отсутствие элемента — высота по умолчанию (45). Может
                      быть длиннее print_form_rows, чтобы задать размер
                      пустых строк в конце.
+        description: Необязательный текст блока "Описание" — справка по
+                     обработке, которую 1С:Конфигуратор показывает
+                     пользователю: что делает обработка, для чего она
+                     нужна, как её использовать (какие параметры/элементы
+                     формы заполнить перед запуском, особенности работы).
+                     Пусто — описание не заполняется (как у большинства
+                     обработок в корпусе образцов); можно задать позже
+                     через update_ert_description.
     """
     return tools.create_ert_file(
-        name, module_text, caption, print_form_rows, column_widths, row_heights
+        name, module_text, caption, print_form_rows, column_widths, row_heights, description
     )
 
 
@@ -476,6 +499,23 @@ def update_ert_module(name: str, new_text: str) -> str:
         new_text: Новый полный текст модуля.
     """
     return tools.update_ert_module(name, new_text)
+
+
+@mcp.tool()
+def update_ert_description(name: str, text: str) -> str:
+    """Заменить блок "Описание" внешней обработки в каталоге --edit-path.
+    Требует --edit-path. Текущее описание можно посмотреть через
+    get_ert_description.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+        text: Новый текст описания — справка/аннотация по обработке: что
+              она делает, для чего предназначена, как её использовать
+              (какие параметры/элементы формы заполнить перед запуском,
+              особенности работы). Именно этот текст 1С:Конфигуратор
+              показывает пользователю как справку по обработке.
+    """
+    return tools.update_ert_description(name, text)
 
 
 @mcp.tool()

@@ -1367,6 +1367,22 @@ def get_ert_module(name: str, start_line: int = 0, end_line: int = 0) -> str:
     return _slice_module(text, start_line, end_line, f"Обработка.{name}")
 
 
+def get_ert_description(name: str) -> str:
+    """Show the "Описание" (help/reference text) of an external processing."""
+    entry = _ert_loader.find(name)
+    if entry is None:
+        return f"Обработка '{name}' не найдена."
+    try:
+        text = ert_writer.get_description(Path(entry.path))
+    except FileNotFoundError:
+        return f"Описание обработки '{name}' не найдено."
+    except Exception as e:
+        return f"Не удалось разобрать описание обработки '{name}': {e}"
+    if not text.strip():
+        return f"Обработка '{name}' не содержит описания (справки)."
+    return text
+
+
 def search_in_ert_modules(query: str, context_lines: int = 0, limit: int = 200) -> str:
     """Search for text across all external processing (.ert) module source code."""
     query_lower = query.lower()
@@ -1532,6 +1548,7 @@ def create_ert_file(
     print_form_rows: list[list[str | dict]] | None = None,
     column_widths: list[int] | None = None,
     row_heights: list[int] | None = None,
+    description: str = "",
 ) -> str:
     """Create a new external processing (.ert) in the --edit-path directory."""
     if err := _edit_target_error(name):
@@ -1539,7 +1556,8 @@ def create_ert_file(
     dialog = default_dialog(caption) if caption else default_dialog()
     try:
         path = ert_writer.create_ert_file(
-            _edit_path, name, module_text, dialog, print_form_rows, column_widths, row_heights
+            _edit_path, name, module_text, dialog, print_form_rows,
+            column_widths, row_heights, description,
         )
     except (ert_writer.ErtNameError, FileExistsError, MoxelWriteError) as e:
         return str(e)
@@ -1572,6 +1590,15 @@ def update_ert_module(name: str, new_text: str) -> str:
     ert_writer.update_ert_module(_edit_path, name, new_text)
     _ert_loader.rescan()
     return f"Модуль обработки '{name}' обновлён."
+
+
+def update_ert_description(name: str, text: str) -> str:
+    """Replace the "Описание" (help/reference text) of an existing edit-path .ert."""
+    if err := _require_edit_target(name):
+        return err
+    ert_writer.update_ert_description(_edit_path, name, text)
+    _ert_loader.rescan()
+    return f"Описание обработки '{name}' обновлено."
 
 
 def patch_ert_module(name: str, edits: list[dict]) -> str:

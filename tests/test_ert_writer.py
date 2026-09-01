@@ -25,6 +25,36 @@ def test_create_ert_file_then_read_back(tmp_path):
         ole.close()
 
 
+def test_create_ert_file_with_description(tmp_path):
+    path = ert_writer.create_ert_file(
+        tmp_path, "Described", description="Обработка выгружает остатки на склад."
+    )
+    assert ert_writer.get_description(path) == "Обработка выгружает остатки на склад."
+
+
+def test_create_ert_file_default_description_is_empty(tmp_path):
+    path = ert_writer.create_ert_file(tmp_path, "NoDescription")
+    assert ert_writer.get_description(path) == ""
+
+
+def test_update_ert_description_preserves_other_streams(tmp_path):
+    path = ert_writer.create_ert_file(
+        tmp_path, "DescriptionEdit", module_text="Процедура X()\nКонецПроцедуры"
+    )
+    before = ert_writer.load_editable_streams(path)
+
+    ert_writer.update_ert_description(tmp_path, "DescriptionEdit", "Справка по обработке.")
+    after = ert_writer.load_editable_streams(path)
+
+    for name in before:
+        if name == "Inplace description":
+            assert before[name] != after[name]
+        else:
+            assert before[name] == after[name], name
+
+    assert ert_writer.get_description(path) == "Справка по обработке."
+
+
 def test_create_ert_module_stream_uses_crlf_on_disk(tmp_path):
     # Regression: every real 1C 7.7 sample stores MD Programm text with
     # \r\n; LF-only text (the normal output of any text tool) crashed the

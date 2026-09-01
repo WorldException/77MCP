@@ -34,6 +34,7 @@ def test_write_tools_disabled_without_edit_path():
     assert "отключено" in tools.remove_ert_print_form_section("X", "horizontal", "Шапка")
     assert "отключено" in tools.set_ert_print_form_column_width("X", 0, 100)
     assert "отключено" in tools.set_ert_print_form_row_height("X", 0, 100)
+    assert "отключено" in tools.update_ert_description("X", "text")
 
 
 def test_full_workflow_via_tools_layer(tmp_path):
@@ -223,6 +224,26 @@ def test_print_form_sections_workflow(tmp_path):
 
     result = tools.remove_ert_print_form_section("Report2", "vertical", "Основная")
     assert "не найдена" in result
+
+
+def test_description_workflow(tmp_path):
+    tools.init_edit_path(str(tmp_path))
+    tools.init_ert_dirs([str(tmp_path)])
+
+    result = tools.create_ert_file(
+        "WithHelp", description="Обработка выгружает остатки на склад в Excel."
+    )
+    assert "Создана" in result
+    assert tools.get_ert_description("WithHelp") == "Обработка выгружает остатки на склад в Excel."
+
+    tools.create_ert_file("NoHelp")
+    assert "не содержит описания" in tools.get_ert_description("NoHelp")
+
+    result = tools.update_ert_description("NoHelp", "Теперь тут есть справка.")
+    assert "обновлено" in result
+    assert tools.get_ert_description("NoHelp") == "Теперь тут есть справка."
+
+    assert "не найдена" in tools.get_ert_description("NoSuchErt")
 
 
 def test_print_form_column_width_and_row_height_workflow(tmp_path):
