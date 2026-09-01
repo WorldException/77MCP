@@ -1051,6 +1051,12 @@ def list_enums() -> str:
 
 # --- Formatting helpers ---
 
+_ATTR_SQL_NOTE = (
+    "(ID реквизита ниже — внутренний ID метаданных, не SQL-имя. "
+    "[SQL: ...] вычислено ИЗ него по соглашению именования 1С 7.7 "
+    "(DBF/MS SQL) — это не гарантированный факт, см. sql_naming.)"
+)
+
 
 def _format_catalog(obj) -> str:
     lines = [
@@ -1071,6 +1077,7 @@ def _format_catalog(obj) -> str:
 
     if obj.attributes:
         lines.append(f"\n## Реквизиты ({len(obj.attributes)})")
+        lines.append(_ATTR_SQL_NOTE)
         for a in obj.attributes:
             ref = _format_ref(a)
             periodic = "  [периодический]" if a.periodic else ""
@@ -1082,7 +1089,7 @@ def _format_catalog(obj) -> str:
     if obj.forms:
         lines.append(f"\n## Формы ({len(obj.forms)})")
         for f in obj.forms:
-            lines.append(f"  - {f.name} (id={f.id})")
+            lines.append(f"  - {f.name} (ID формы метаданных: {f.id})")
 
     return "\n".join(lines)
 
@@ -1107,6 +1114,7 @@ def _format_document(obj) -> str:
 
     if obj.head_attributes:
         lines.append(f"\n## Реквизиты шапки ({len(obj.head_attributes)})")
+        lines.append(_ATTR_SQL_NOTE)
         for a in obj.head_attributes:
             ref = _format_ref(a)
             sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
@@ -1116,6 +1124,7 @@ def _format_document(obj) -> str:
 
     if obj.table_attributes:
         lines.append(f"\n## Табличная часть ({len(obj.table_attributes)})")
+        lines.append(_ATTR_SQL_NOTE)
         for a in obj.table_attributes:
             ref = _format_ref(a)
             sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
@@ -1140,18 +1149,21 @@ def _format_register(obj) -> str:
 
     if obj.dimensions:
         lines.append(f"\n## Измерения ({len(obj.dimensions)})")
+        lines.append(_ATTR_SQL_NOTE)
         for a in obj.dimensions:
             sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
             lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){sql}")
 
     if obj.resources:
         lines.append(f"\n## Ресурсы ({len(obj.resources)})")
+        lines.append(_ATTR_SQL_NOTE)
         for a in obj.resources:
             sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
             lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){sql}")
 
     if obj.attributes:
         lines.append(f"\n## Реквизиты ({len(obj.attributes)})")
+        lines.append(_ATTR_SQL_NOTE)
         for a in obj.attributes:
             sql = f" [SQL: {sql_naming.attribute_field(a.id)}]" if a.id else ""
             lines.append(f"  - {a.name}: {a.type}({a.length}.{a.precision}){sql}")
@@ -1204,7 +1216,7 @@ def _format_journal(obj) -> str:
     if obj.forms:
         lines.append(f"\n## Формы ({len(obj.forms)})")
         for f in obj.forms:
-            lines.append(f"  - {f.name} (id={f.id})")
+            lines.append(f"  - {f.name} (ID формы метаданных: {f.id})")
 
     return "\n".join(lines)
 
@@ -1247,7 +1259,7 @@ def _format_chart_of_accounts(obj) -> str:
     if obj.forms:
         lines.append(f"\n## Формы ({len(obj.forms)})")
         for f in obj.forms:
-            lines.append(f"  - {f.name} (id={f.id})")
+            lines.append(f"  - {f.name} (ID формы метаданных: {f.id})")
 
     return "\n".join(lines)
 
@@ -1439,8 +1451,15 @@ def list_ert_dialog_controls(name: str) -> str:
     ]
     if not dialog.controls:
         lines.append("  (элементов управления нет)")
+    else:
+        lines.append(
+            "Примечание: id_элемента — локальный ID элемента управления, "
+            "уникален только в пределах ЭТОЙ формы. Это НЕ SQL-идентификатор "
+            "и НЕ ID реквизита объекта (bound_attribute ниже — имя реквизита, "
+            "на который ссылается элемент)."
+        )
     for c in dialog.controls:
-        parts = [f"id={c.id}", c.control_class]
+        parts = [f"id_элемента={c.id}", c.control_class]
         if c.caption:
             parts.append(f'"{c.caption}"')
         parts.append(f"[{c.x},{c.y},{c.width},{c.height}]")
