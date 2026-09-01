@@ -154,7 +154,16 @@ async def startup() -> None:
         os.makedirs(EDIT_PATH, exist_ok=True)
         tools.init_edit_path(EDIT_PATH)
     tools.set_sql_allowed(ALLOW_SQL)
-    tools.init_ert_dirs(_resolve_ext_dirs())
+    ext_dirs = _resolve_ext_dirs()
+    tools.init_ert_dirs(ext_dirs)
+
+    print("=== 77MCP: включённые опции ===")
+    print(f"  base_dir (1cv7.md): {Path(CONFIG_DIR).resolve()} (readonly={READONLY})")
+    print(f"  ext_dirs (*.ert):   {[str(Path(d).resolve()) for d in ext_dirs]}")
+    print(f"  edit_path:          {Path(EDIT_PATH).resolve() if EDIT_PATH else 'не задан (создание/редактирование .ert отключено)'}")
+    print(f"  allow_sql:          {ALLOW_SQL}")
+    print("================================")
+
     md_path = os.path.join(CONFIG_DIR, MD_FILENAME)
     if os.path.exists(md_path):
         try:
