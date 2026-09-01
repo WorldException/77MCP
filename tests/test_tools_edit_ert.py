@@ -223,6 +223,37 @@ def test_print_form_sections_workflow(tmp_path):
     assert "не найдена" in result
 
 
+def test_print_form_cell_types_workflow(tmp_path):
+    tools.init_edit_path(str(tmp_path))
+    tools.init_ert_dirs([str(tmp_path)])
+
+    result = tools.create_ert_file(
+        "Report3",
+        print_form_rows=[
+            ["Кол-во", {"text": "Наименование", "type": "expression"}],
+            [{"text": "Итого: [Итого]", "type": "pattern"}],
+        ],
+    )
+    assert "Создана" in result
+
+    form = tools.get_ert_print_form("Report3")
+    assert "Наименование [expression]" in form
+    assert "Итого: [Итого] [pattern]" in form
+    assert "Кол-во" in form and "Кол-во [" not in form
+
+    result = tools.create_ert_file(
+        "ReportBadType", print_form_rows=[[{"text": "x", "type": "bogus"}]]
+    )
+    assert "Неизвестный тип ячейки" in result
+    assert not (tmp_path / "ReportBadType.ert").exists()
+
+    tools.create_ert_file("Report4")
+    result = tools.update_ert_print_form(
+        "Report4", [[{"text": "x", "type": "bogus"}]]
+    )
+    assert "Неизвестный тип ячейки" in result
+
+
 def test_update_ert_print_form_disabled_without_edit_path():
     assert "отключено" in tools.update_ert_print_form("X", [["a"]])
 

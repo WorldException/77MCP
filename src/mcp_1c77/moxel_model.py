@@ -44,6 +44,24 @@ FLAG_TEXT_ORIENTATION = 0x00400000
 FLAG_VALUE = 0x40000000
 FLAG_TEXT = 0x80000000
 
+# CSheetFormat.bType (ContentType, v7Moxel: Moxel.ContentType) — interpretation
+# of DataCell.text when FLAG_TYPE is set. Verified against the real corpus
+# (work/ExtForms/*.ert): TEXT cells mostly omit FLAG_TYPE (0 is the implicit
+# default); EXPRESSION/PATTERN cells set it consistently. FIXED_PATTERN is
+# defined by the format but never observed in any real sample.
+CONTENT_TYPE_TEXT = 0  # `text` is a literal string, printed as-is
+CONTENT_TYPE_EXPRESSION = 1  # `text` is a 1C expression/attribute name, evaluated at print time
+CONTENT_TYPE_PATTERN = 2  # `text` is a literal string with `[Expression]` placeholders
+CONTENT_TYPE_FIXED_PATTERN = 3  # like PATTERN, but re-evaluated only once (1C UI: "фиксированный шаблон")
+
+CONTENT_TYPE_NAMES: dict[int, str] = {
+    CONTENT_TYPE_TEXT: "text",
+    CONTENT_TYPE_EXPRESSION: "expression",
+    CONTENT_TYPE_PATTERN: "pattern",
+    CONTENT_TYPE_FIXED_PATTERN: "fixed_pattern",
+}
+CONTENT_TYPE_BY_NAME: dict[str, int] = {v: k for k, v in CONTENT_TYPE_NAMES.items()}
+
 CELL_FORMAT_SIZE = 30  # bytes, CSheetFormat, Pack=1
 LOGFONT_SIZE = 60  # bytes, LOGFONT, Pack=1
 PICTURE_SIZE = 40  # bytes, Picture, Pack=1

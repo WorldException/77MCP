@@ -14,7 +14,7 @@ from .dialog_parser import default_dialog, parse_dialog, serialize_dialog
 from .ert_loader import ErtLoader
 from .metadata import TYPE_CODES, ConfigurationLoader
 from .models import ModuleProcedure, ModuleStructure
-from .moxel_model import MoxelSection
+from .moxel_model import CONTENT_TYPE_NAMES, FLAG_TYPE, MoxelSection
 from .moxel_writer import MoxelWriteError
 from .sql_guard import assert_readonly_select
 
@@ -1457,11 +1457,14 @@ def get_ert_print_form(name: str) -> str:
     any_cell = False
     for row_idx in sorted(sheet.rows):
         row = sheet.rows[row_idx]
-        cells = [
-            f"{col_idx}={cell.text if cell.text is not None else cell.value}"
-            for col_idx, cell in sorted(row.cells.items())
-            if cell.text or cell.value
-        ]
+        cells = []
+        for col_idx, cell in sorted(row.cells.items()):
+            if not (cell.text or cell.value):
+                continue
+            text = f"{col_idx}={cell.text if cell.text is not None else cell.value}"
+            if cell.format.has(FLAG_TYPE):
+                text += f" [{CONTENT_TYPE_NAMES.get(cell.format.content_type, cell.format.content_type)}]"
+            cells.append(text)
         if cells:
             any_cell = True
             lines.append(f"  строка {row_idx}: " + "; ".join(cells))
@@ -1505,7 +1508,7 @@ def create_ert_file(
     name: str,
     module_text: str = "",
     caption: str = "",
-    print_form_rows: list[list[str]] | None = None,
+    print_form_rows: list[list[str | dict]] | None = None,
 ) -> str:
     """Create a new external processing (.ert) in the --edit-path directory."""
     if err := _edit_target_error(name):
@@ -1513,7 +1516,7 @@ def create_ert_file(
     dialog = default_dialog(caption) if caption else default_dialog()
     try:
         path = ert_writer.create_ert_file(_edit_path, name, module_text, dialog, print_form_rows)
-    except (ert_writer.ErtNameError, FileExistsError) as e:
+    except (ert_writer.ErtNameError, FileExistsError, MoxelWriteError) as e:
         return str(e)
     _ert_loader.rescan()
     return f"Создана обработка '{name}': {path}"
@@ -1709,12 +1712,15 @@ def update_ert_dialog_control(
     return f"Элемент управления id={control_id} формы обработки '{name}' обновлён."
 
 
-def update_ert_print_form(name: str, rows: list[list[str]]) -> str:
+def update_ert_print_form(name: str, rows: list[list[str | dict]]) -> str:
     """Replace the print form (Page.1/MOXCEL table) of an existing edit-path .ert
-    with a simple grid of cell text (no formatting/objects)."""
+    with a simple grid of cells (no formatting/objects)."""
     if err := _require_edit_target(name):
         return err
-    ert_writer.update_ert_print_form(_edit_path, name, rows)
+    try:
+        ert_writer.update_ert_print_form(_edit_path, name, rows)
+    except MoxelWriteError as e:
+        return str(e)
     _ert_loader.rescan()
     return f"Печатная форма обработки '{name}' обновлена ({len(rows)} строк)."
 

@@ -5,7 +5,16 @@ import os
 import pytest
 
 from mcp_1c77 import ole_reader
-from mcp_1c77.moxel_model import CellFormat, FLAG_COLUMN_WIDTH, MoxelSection, MoxelSheet
+from mcp_1c77.moxel_model import (
+    CONTENT_TYPE_EXPRESSION,
+    CONTENT_TYPE_PATTERN,
+    CONTENT_TYPE_TEXT,
+    FLAG_TYPE,
+    CellFormat,
+    FLAG_COLUMN_WIDTH,
+    MoxelSection,
+    MoxelSheet,
+)
 from mcp_1c77.moxel_reader import parse_moxel
 from mcp_1c77.moxel_writer import MoxelWriteError, simple_table, write_moxel
 
@@ -57,6 +66,44 @@ def test_simple_table_round_trip():
     assert back.cell_text(3, 2) == "200"
     assert back.cell_text(2, 0) is None  # blank row has no stored cells
     assert {k: v.format.w2 for k, v in back.columns.items()} == {0: 150, 1: 50, 2: 80}
+
+
+def test_simple_table_cell_content_types():
+    rows = [
+        ["Кол-во", {"text": "Наименование", "type": "expression"}],
+        [{"text": "Всего [Итого] шт."}, {"text": "Итого: [Итого]", "type": "pattern"}],
+    ]
+    sheet = simple_table(rows)
+
+    plain = sheet.rows[0].cells[0]
+    assert plain.text == "Кол-во"
+    assert plain.format.content_type == CONTENT_TYPE_TEXT
+    assert not plain.format.has(FLAG_TYPE)
+
+    expr = sheet.rows[0].cells[1]
+    assert expr.text == "Наименование"
+    assert expr.format.content_type == CONTENT_TYPE_EXPRESSION
+    assert expr.format.has(FLAG_TYPE)
+
+    default_type = sheet.rows[1].cells[0]
+    assert default_type.text == "Всего [Итого] шт."
+    assert default_type.format.content_type == CONTENT_TYPE_TEXT
+    assert not default_type.format.has(FLAG_TYPE)
+
+    pattern = sheet.rows[1].cells[1]
+    assert pattern.text == "Итого: [Итого]"
+    assert pattern.format.content_type == CONTENT_TYPE_PATTERN
+    assert pattern.format.has(FLAG_TYPE)
+
+    back = parse_moxel(write_moxel(sheet))
+    assert back.rows[0].cells[1].format.content_type == CONTENT_TYPE_EXPRESSION
+    assert back.rows[1].cells[1].format.content_type == CONTENT_TYPE_PATTERN
+    assert back.cell_text(1, 1) == "Итого: [Итого]"
+
+
+def test_simple_table_rejects_unknown_cell_type():
+    with pytest.raises(MoxelWriteError):
+        simple_table([[{"text": "x", "type": "bogus"}]])
 
 
 def test_sections_round_trip():

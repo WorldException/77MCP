@@ -19,10 +19,13 @@ import struct
 
 from .moxel_model import (
     CELL_FORMAT_SIZE,
+    CONTENT_TYPE_BY_NAME,
+    CONTENT_TYPE_TEXT,
     FLAG_COLUMN_WIDTH,
     FLAG_DATA,
     FLAG_ROW_HEIGHT,
     FLAG_TEXT,
+    FLAG_TYPE,
     FLAG_VALUE,
     LOGFONT_SIZE,
     MAGIC,
@@ -210,15 +213,49 @@ def write_moxel(sheet: MoxelSheet) -> bytes:
 _DEFAULT_COLUMN_WIDTH = 40
 _DEFAULT_ROW_HEIGHT = 45
 
+CellSpec = str | dict
+
+
+def _resolve_cell_spec(spec: CellSpec) -> tuple[str, int] | None:
+    """Normalize one `rows[i][j]` entry to `(text, content_type)`, or `None`
+    for a blank cell (matching how 1C omits blank cells).
+
+    `spec` is either a plain string (content type "text", the historical
+    format) or a dict `{"text": ..., "type": "text"|"expression"|"pattern"|
+    "fixed_pattern"}` ("type" optional, defaults to "text"). "expression"
+    means `text` is a 1C expression/attribute name evaluated at print time;
+    "pattern" means `text` is a literal string with `[Expression]`
+    placeholders substituted at print time — see CONTENT_TYPE_* in
+    moxel_model.py and docs/external-ert.md §10.2.
+    """
+    if isinstance(spec, str):
+        return (spec, CONTENT_TYPE_TEXT) if spec else None
+    if isinstance(spec, dict):
+        text = spec.get("text", "")
+        type_name = spec.get("type", "text")
+        if type_name not in CONTENT_TYPE_BY_NAME:
+            raise MoxelWriteError(
+                f"Неизвестный тип ячейки: '{type_name}'. Допустимые значения: "
+                f"{', '.join(CONTENT_TYPE_BY_NAME)}."
+            )
+        return (text, CONTENT_TYPE_BY_NAME[type_name]) if text else None
+    raise MoxelWriteError(
+        f"Ячейка должна быть строкой или словарём {{'text', 'type'}}, получено: {spec!r}."
+    )
+
 
 def simple_table(
-    rows: list[list[str]], column_widths: list[int] | None = None
+    rows: list[list[CellSpec]], column_widths: list[int] | None = None
 ) -> MoxelSheet:
-    """Build a MoxelSheet from a plain 2D grid of cell text (no formatting).
+    """Build a MoxelSheet from a plain 2D grid of cells (no formatting beyond
+    content type).
 
-    `rows[i][j]` becomes the text of cell (row i, column j); empty strings
-    are skipped (no cell is stored, matching how 1C omits blank cells).
-    `column_widths[j]`, if given, sets an explicit width for column j.
+    `rows[i][j]` becomes cell (row i, column j). Each entry is either a
+    plain string (literal text) or a dict `{"text": ..., "type": ...}` —
+    see `_resolve_cell_spec` for the allowed "type" values. Blank/empty
+    entries are skipped (no cell is stored, matching how 1C omits blank
+    cells). `column_widths[j]`, if given, sets an explicit width for
+    column j.
     """
     n_rows = len(rows)
     n_cols = max((len(r) for r in rows), default=0)
@@ -232,9 +269,17 @@ def simple_table(
     sheet_rows: dict[int, MoxelRow] = {}
     for i, row_values in enumerate(rows):
         cells: dict[int, DataCell] = {}
-        for j, text in enumerate(row_values):
-            if text:
-                cells[j] = DataCell(format=CellFormat(flags=FLAG_TEXT), text=text)
+        for j, spec in enumerate(row_values):
+            resolved = _resolve_cell_spec(spec)
+            if resolved is None:
+                continue
+            text, content_type = resolved
+            flags = FLAG_TEXT
+            fmt_kwargs = {}
+            if content_type != CONTENT_TYPE_TEXT:
+                flags |= FLAG_TYPE
+                fmt_kwargs["content_type"] = content_type
+            cells[j] = DataCell(format=CellFormat(flags=flags, **fmt_kwargs), text=text)
         if cells:
             sheet_rows[i] = MoxelRow(format=CellFormat(), cells=cells)
 

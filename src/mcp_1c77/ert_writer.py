@@ -156,7 +156,7 @@ def create_ert_file(
     name: str,
     module_text: str = "",
     dialog: Dialog | None = None,
-    print_form_rows: list[list[str]] | None = None,
+    print_form_rows: list[list[str | dict]] | None = None,
 ) -> Path:
     """Create a brand-new `<edit_path>/<name>.ert`. Refuses to overwrite.
 
@@ -293,7 +293,7 @@ def update_ert_dialog(edit_path: Path, name: str, dialog: Dialog) -> None:
     ole_writer.write_compound_file(target, streams)
 
 
-def update_ert_print_form(edit_path: Path, name: str, rows: list[list[str]]) -> None:
+def update_ert_print_form(edit_path: Path, name: str, rows: list[list[str | dict]]) -> None:
     """Replace only the `Page.1` (MOXCEL print form) stream of an existing
     edit-path .ert with a freshly built simple grid of cell text."""
     _validate_name(name)
