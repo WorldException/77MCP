@@ -245,19 +245,24 @@ def _resolve_cell_spec(spec: CellSpec) -> tuple[str, int] | None:
 
 
 def simple_table(
-    rows: list[list[CellSpec]], column_widths: list[int] | None = None
+    rows: list[list[CellSpec]],
+    column_widths: list[int] | None = None,
+    row_heights: list[int] | None = None,
 ) -> MoxelSheet:
     """Build a MoxelSheet from a plain 2D grid of cells (no formatting beyond
-    content type).
+    content type/column width/row height).
 
     `rows[i][j]` becomes cell (row i, column j). Each entry is either a
     plain string (literal text) or a dict `{"text": ..., "type": ...}` —
     see `_resolve_cell_spec` for the allowed "type" values. Blank/empty
     entries are skipped (no cell is stored, matching how 1C omits blank
-    cells). `column_widths[j]`, if given, sets an explicit width for
-    column j.
+    cells). `column_widths[j]`/`row_heights[i]`, if given, set an explicit
+    width/height for column j / row i (a falsy entry, e.g. `0`, leaves that
+    column/row at the sheet default); `row_heights` may be longer than
+    `rows` to size trailing blank rows.
     """
-    n_rows = len(rows)
+    row_heights = row_heights or []
+    n_rows = max(len(rows), len(row_heights))
     n_cols = max((len(r) for r in rows), default=0)
 
     columns: dict[int, DataCell] = {}
@@ -267,9 +272,9 @@ def simple_table(
                 columns[j] = DataCell(format=CellFormat(flags=FLAG_COLUMN_WIDTH, w2=w))
 
     sheet_rows: dict[int, MoxelRow] = {}
-    for i, row_values in enumerate(rows):
+    for i in range(n_rows):
         cells: dict[int, DataCell] = {}
-        for j, spec in enumerate(row_values):
+        for j, spec in enumerate(rows[i] if i < len(rows) else []):
             resolved = _resolve_cell_spec(spec)
             if resolved is None:
                 continue
@@ -280,8 +285,11 @@ def simple_table(
                 flags |= FLAG_TYPE
                 fmt_kwargs["content_type"] = content_type
             cells[j] = DataCell(format=CellFormat(flags=flags, **fmt_kwargs), text=text)
-        if cells:
-            sheet_rows[i] = MoxelRow(format=CellFormat(), cells=cells)
+
+        height = row_heights[i] if i < len(row_heights) else 0
+        row_format = CellFormat(flags=FLAG_ROW_HEIGHT, w1=height) if height else CellFormat()
+        if cells or height:
+            sheet_rows[i] = MoxelRow(format=row_format, cells=cells)
 
     return MoxelSheet(
         version=6,

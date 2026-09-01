@@ -32,6 +32,8 @@ def test_write_tools_disabled_without_edit_path():
     assert "отключено" in tools.add_ert_print_form_section("X", "horizontal", "Шапка", 0, 0)
     assert "отключено" in tools.update_ert_print_form_section("X", "horizontal", "Шапка")
     assert "отключено" in tools.remove_ert_print_form_section("X", "horizontal", "Шапка")
+    assert "отключено" in tools.set_ert_print_form_column_width("X", 0, 100)
+    assert "отключено" in tools.set_ert_print_form_row_height("X", 0, 100)
 
 
 def test_full_workflow_via_tools_layer(tmp_path):
@@ -221,6 +223,46 @@ def test_print_form_sections_workflow(tmp_path):
 
     result = tools.remove_ert_print_form_section("Report2", "vertical", "Основная")
     assert "не найдена" in result
+
+
+def test_print_form_column_width_and_row_height_workflow(tmp_path):
+    tools.init_edit_path(str(tmp_path))
+    tools.init_ert_dirs([str(tmp_path)])
+
+    tools.create_ert_file(
+        "Report5",
+        print_form_rows=[["Наименование", "Кол-во"], ["Товар1", "5"]],
+        column_widths=[150, 0],
+        row_heights=[30],
+    )
+    form = tools.get_ert_print_form("Report5")
+    assert "0=150" in form  # column width summary line
+    assert "0=30" in form  # row height summary line
+    assert "Наименование" in form and "Товар1" in form
+
+    result = tools.set_ert_print_form_column_width("Report5", 1, 80)
+    assert "установлена" in result
+    result = tools.set_ert_print_form_row_height("Report5", 1, 60)
+    assert "установлена" in result
+
+    form = tools.get_ert_print_form("Report5")
+    assert "1=80" in form
+    assert "1=60" in form
+    # earlier cell data and the first column/row setting must survive
+    assert "0=150" in form
+    assert "0=30" in form
+    assert "Наименование" in form and "Товар1" in form
+
+    # extending width/height past the current table size grows n_columns/n_rows
+    result = tools.set_ert_print_form_row_height("Report5", 5, 20)
+    assert "установлена" in result
+    sheet = tools.ert_writer.get_print_form(tmp_path / "Report5.ert")
+    assert sheet.n_rows == 6
+
+    result = tools.set_ert_print_form_column_width("Report5", 0, -10)
+    assert "положительным" in result
+    result = tools.set_ert_print_form_row_height("Report5", 0, 0)
+    assert "положительным" in result
 
 
 def test_print_form_cell_types_workflow(tmp_path):

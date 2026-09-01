@@ -14,7 +14,16 @@ from .dialog_parser import default_dialog, parse_dialog, serialize_dialog
 from .ert_loader import ErtLoader
 from .metadata import TYPE_CODES, ConfigurationLoader
 from .models import ModuleProcedure, ModuleStructure
-from .moxel_model import CONTENT_TYPE_NAMES, FLAG_TYPE, MoxelSection
+from .moxel_model import (
+    CONTENT_TYPE_NAMES,
+    FLAG_COLUMN_WIDTH,
+    FLAG_ROW_HEIGHT,
+    FLAG_TYPE,
+    CellFormat,
+    DataCell,
+    MoxelRow,
+    MoxelSection,
+)
 from .moxel_writer import MoxelWriteError
 from .sql_guard import assert_readonly_select
 
@@ -1454,6 +1463,18 @@ def get_ert_print_form(name: str) -> str:
             f"не показаны, разбор только текстовых ячеек)"
         )
         lines.append("")
+    widths = {
+        j: c.format.w2 for j, c in sorted(sheet.columns.items()) if c.format.has(FLAG_COLUMN_WIDTH)
+    }
+    if widths:
+        lines.append("Ширины колонок: " + "; ".join(f"{j}={w}" for j, w in widths.items()))
+    heights = {
+        i: r.format.w1 for i, r in sorted(sheet.rows.items()) if r.format.has(FLAG_ROW_HEIGHT)
+    }
+    if heights:
+        lines.append("Высоты строк: " + "; ".join(f"{i}={h}" for i, h in heights.items()))
+    if widths or heights:
+        lines.append("")
     any_cell = False
     for row_idx in sorted(sheet.rows):
         row = sheet.rows[row_idx]
@@ -1509,13 +1530,17 @@ def create_ert_file(
     module_text: str = "",
     caption: str = "",
     print_form_rows: list[list[str | dict]] | None = None,
+    column_widths: list[int] | None = None,
+    row_heights: list[int] | None = None,
 ) -> str:
     """Create a new external processing (.ert) in the --edit-path directory."""
     if err := _edit_target_error(name):
         return err
     dialog = default_dialog(caption) if caption else default_dialog()
     try:
-        path = ert_writer.create_ert_file(_edit_path, name, module_text, dialog, print_form_rows)
+        path = ert_writer.create_ert_file(
+            _edit_path, name, module_text, dialog, print_form_rows, column_widths, row_heights
+        )
     except (ert_writer.ErtNameError, FileExistsError, MoxelWriteError) as e:
         return str(e)
     _ert_loader.rescan()
@@ -1712,13 +1737,18 @@ def update_ert_dialog_control(
     return f"Элемент управления id={control_id} формы обработки '{name}' обновлён."
 
 
-def update_ert_print_form(name: str, rows: list[list[str | dict]]) -> str:
+def update_ert_print_form(
+    name: str,
+    rows: list[list[str | dict]],
+    column_widths: list[int] | None = None,
+    row_heights: list[int] | None = None,
+) -> str:
     """Replace the print form (Page.1/MOXCEL table) of an existing edit-path .ert
     with a simple grid of cells (no formatting/objects)."""
     if err := _require_edit_target(name):
         return err
     try:
-        ert_writer.update_ert_print_form(_edit_path, name, rows)
+        ert_writer.update_ert_print_form(_edit_path, name, rows, column_widths, row_heights)
     except MoxelWriteError as e:
         return str(e)
     _ert_loader.rescan()
@@ -1862,6 +1892,54 @@ def remove_ert_print_form_section(name: str, orientation: str, section_name: str
         return str(e)
     _ert_loader.rescan()
     return f"Секция \"{section_name}\" удалена из печатной формы обработки '{name}'."
+
+
+def set_ert_print_form_column_width(name: str, column: int, width: int) -> str:
+    """Set the width of one column of an existing edit-path .ert's print form,
+    without touching cells/sections/other columns."""
+    if err := _require_edit_target(name):
+        return err
+    if width <= 0:
+        return "Ширина колонки должна быть положительным числом."
+    sheet = ert_writer.get_editable_print_form(_edit_path, name)
+    existing = sheet.columns.get(column)
+    if existing is not None:
+        existing.format.flags |= FLAG_COLUMN_WIDTH
+        existing.format.w2 = width
+    else:
+        sheet.columns[column] = DataCell(format=CellFormat(flags=FLAG_COLUMN_WIDTH, w2=width))
+    if column >= sheet.n_columns:
+        sheet.n_columns = column + 1
+    try:
+        ert_writer.update_ert_print_form_sheet(_edit_path, name, sheet)
+    except MoxelWriteError as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Ширина колонки {column} формы '{name}' установлена: {width}."
+
+
+def set_ert_print_form_row_height(name: str, row: int, height: int) -> str:
+    """Set the height of one row of an existing edit-path .ert's print form,
+    without touching cells/sections/other rows."""
+    if err := _require_edit_target(name):
+        return err
+    if height <= 0:
+        return "Высота строки должна быть положительным числом."
+    sheet = ert_writer.get_editable_print_form(_edit_path, name)
+    existing = sheet.rows.get(row)
+    if existing is not None:
+        existing.format.flags |= FLAG_ROW_HEIGHT
+        existing.format.w1 = height
+    else:
+        sheet.rows[row] = MoxelRow(format=CellFormat(flags=FLAG_ROW_HEIGHT, w1=height))
+    if row >= sheet.n_rows:
+        sheet.n_rows = row + 1
+    try:
+        ert_writer.update_ert_print_form_sheet(_edit_path, name, sheet)
+    except MoxelWriteError as e:
+        return str(e)
+    _ert_loader.rescan()
+    return f"Высота строки {row} формы '{name}' установлена: {height}."
 
 
 _SQL_DISABLED_MSG = (

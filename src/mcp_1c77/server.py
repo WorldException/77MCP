@@ -381,7 +381,9 @@ def get_ert_print_form(name: str) -> str:
     секции (для `Таблица.ВывестиСекцию()`) не показаны здесь — см.
     list_ert_print_form_sections. Ячейки типа "expression"/"pattern"/
     "fixed_pattern" (см. print_form_rows в create_ert_file) помечены суффиксом
-    вида "[pattern]" после значения.
+    вида "[pattern]" после значения. Явно заданные ширины колонок/высоты
+    строк (см. set_ert_print_form_column_width/set_ert_print_form_row_height)
+    показаны отдельными строками перед перечислением ячеек.
 
     Args:
         name: Имя обработки без расширения .ert.
@@ -403,6 +405,8 @@ def create_ert_file(
     module_text: str = "",
     caption: str = "",
     print_form_rows: list[list[str | dict]] | None = None,
+    column_widths: list[int] | None = None,
+    row_heights: list[int] | None = None,
 ) -> str:
     """Создать новую внешнюю обработку (.ert) в каталоге --edit-path.
     Требует запуска сервера с параметром --edit-path.
@@ -410,7 +414,9 @@ def create_ert_file(
     Создаёт файл с пустой (или заданным начальным текстом) формой и модулем.
     После создания используйте add_ert_dialog_control, чтобы добавить
     элементы управления на форму, update_ert_module, чтобы изменить код,
-    update_ert_print_form, чтобы позже изменить печатную форму, и
+    update_ert_print_form, чтобы позже изменить печатную форму,
+    set_ert_print_form_column_width/set_ert_print_form_row_height, чтобы
+    точечно поправить размеры без пересборки формы, и
     add_ert_print_form_section, чтобы задать именованные секции
     ("Шапка"/"Строка"/"Подвал" и т.п.) для `Таблица.ВывестиСекцию()`.
 
@@ -437,8 +443,19 @@ def create_ert_file(
                      [{"text":"Наименование","type":"expression"}, "5"]].
                      Пусто — печатная форма не используется (как у
                      большинства служебных обработок без визуального отчёта).
+        column_widths: Необязательный список ширин колонок печатной формы по
+                     порядку (column_widths[j] — ширина колонки j); 0 или
+                     отсутствие элемента — ширина по умолчанию (40).
+                     Действует, даже если print_form_rows не задан.
+        row_heights: Необязательный список высот строк печатной формы по
+                     порядку (row_heights[i] — высота строки i); 0 или
+                     отсутствие элемента — высота по умолчанию (45). Может
+                     быть длиннее print_form_rows, чтобы задать размер
+                     пустых строк в конце.
     """
-    return tools.create_ert_file(name, module_text, caption, print_form_rows)
+    return tools.create_ert_file(
+        name, module_text, caption, print_form_rows, column_widths, row_heights
+    )
 
 
 @mcp.tool()
@@ -624,7 +641,12 @@ def update_ert_dialog_control(
 
 
 @mcp.tool()
-def update_ert_print_form(name: str, rows: list[list[str | dict]]) -> str:
+def update_ert_print_form(
+    name: str,
+    rows: list[list[str | dict]],
+    column_widths: list[int] | None = None,
+    row_heights: list[int] | None = None,
+) -> str:
     """Заменить печатную форму (Page.1, MOXCEL-таблица) внешней обработки в
     каталоге --edit-path простой сеткой ячеек (текст/выражение/шаблон/
     фиксированный шаблон — см. print_form_rows в create_ert_file). Требует
@@ -634,16 +656,21 @@ def update_ert_print_form(name: str, rows: list[list[str | dict]]) -> str:
     дизайнере 1С.
 
     ВАЖНО: этот инструмент строит печатную форму заново с нуля, поэтому
-    стирает все ранее заданные секции (см. list_ert_print_form_sections/
-    add_ert_print_form_section) — вызывайте его до настройки секций, а не
-    после.
+    стирает все ранее заданные секции и ширины/высоты (см.
+    list_ert_print_form_sections/add_ert_print_form_section,
+    set_ert_print_form_column_width/set_ert_print_form_row_height) —
+    вызывайте его до их настройки, а не после.
 
     Args:
         name: Имя обработки без расширения .ert.
-        rows: Список строк таблицы, каждая строка — список текстов ячеек по
+        rows: Список строк таблицы, каждая строка — список ячеек по
               колонкам (см. print_form_rows в create_ert_file).
+        column_widths: Необязательный список ширин колонок по порядку
+              (см. create_ert_file).
+        row_heights: Необязательный список высот строк по порядку
+              (см. create_ert_file).
     """
-    return tools.update_ert_print_form(name, rows)
+    return tools.update_ert_print_form(name, rows, column_widths, row_heights)
 
 
 @mcp.tool()
@@ -747,6 +774,40 @@ def remove_ert_print_form_section(name: str, orientation: str, section_name: str
         section_name: Имя удаляемой секции.
     """
     return tools.remove_ert_print_form_section(name, orientation, section_name)
+
+
+@mcp.tool()
+def set_ert_print_form_column_width(name: str, column: int, width: int) -> str:
+    """Задать ширину одной колонки печатной формы внешней обработки в
+    каталоге --edit-path, не переписывая остальную форму (ячейки, секции,
+    другие колонки сохраняются). Требует --edit-path. Единицы — те же, что
+    у column_widths в create_ert_file (по умолчанию у колонки без явной
+    ширины — 40). Если колонка выходит за текущую ширину таблицы, таблица
+    расширяется. Текущие ширины показывает get_ert_print_form.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+        column: Номер колонки (с 0).
+        width: Новая ширина колонки (положительное число).
+    """
+    return tools.set_ert_print_form_column_width(name, column, width)
+
+
+@mcp.tool()
+def set_ert_print_form_row_height(name: str, row: int, height: int) -> str:
+    """Задать высоту одной строки печатной формы внешней обработки в
+    каталоге --edit-path, не переписывая остальную форму (ячейки, секции,
+    другие строки сохраняются). Требует --edit-path. Единицы — те же, что
+    у row_heights в create_ert_file (по умолчанию у строки без явной
+    высоты — 45). Если строка выходит за текущую высоту таблицы, таблица
+    расширяется. Текущие высоты показывает get_ert_print_form.
+
+    Args:
+        name: Имя обработки без расширения .ert.
+        row: Номер строки (с 0).
+        height: Новая высота строки (положительное число).
+    """
+    return tools.set_ert_print_form_row_height(name, row, height)
 
 
 @mcp.tool()

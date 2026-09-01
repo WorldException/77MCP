@@ -157,19 +157,27 @@ def create_ert_file(
     module_text: str = "",
     dialog: Dialog | None = None,
     print_form_rows: list[list[str | dict]] | None = None,
+    column_widths: list[int] | None = None,
+    row_heights: list[int] | None = None,
 ) -> Path:
     """Create a brand-new `<edit_path>/<name>.ert`. Refuses to overwrite.
 
-    `print_form_rows`, if given, builds the initial `Page.1` print form as a
-    simple grid of cell text (see moxel_writer.simple_table); otherwise the
-    print form is left empty (the same default 1C itself uses for a new
-    processing with no print form configured).
+    `print_form_rows`, if given (or if `column_widths`/`row_heights` is
+    given), builds the initial `Page.1` print form as a simple grid of
+    cells with optional column widths/row heights (see
+    moxel_writer.simple_table); otherwise the print form is left empty (the
+    same default 1C itself uses for a new processing with no print form
+    configured).
     """
     _validate_name(name)
     target = edit_path / f"{name}.ert"
     if target.exists():
         raise FileExistsError(f"Обработка '{name}' уже существует в {edit_path}.")
-    print_form = simple_table(print_form_rows) if print_form_rows else None
+    print_form = (
+        simple_table(print_form_rows or [], column_widths, row_heights)
+        if print_form_rows or column_widths or row_heights
+        else None
+    )
     streams = build_new_ert_streams(
         module_text, dialog if dialog is not None else default_dialog(), print_form
     )
@@ -293,15 +301,22 @@ def update_ert_dialog(edit_path: Path, name: str, dialog: Dialog) -> None:
     ole_writer.write_compound_file(target, streams)
 
 
-def update_ert_print_form(edit_path: Path, name: str, rows: list[list[str | dict]]) -> None:
+def update_ert_print_form(
+    edit_path: Path,
+    name: str,
+    rows: list[list[str | dict]],
+    column_widths: list[int] | None = None,
+    row_heights: list[int] | None = None,
+) -> None:
     """Replace only the `Page.1` (MOXCEL print form) stream of an existing
-    edit-path .ert with a freshly built simple grid of cell text."""
+    edit-path .ert with a freshly built simple grid of cells (see
+    moxel_writer.simple_table)."""
     _validate_name(name)
     target = edit_path / f"{name}.ert"
     if not target.exists():
         raise FileNotFoundError(f"Обработка '{name}' не найдена в {edit_path}.")
     streams = load_editable_streams(target)
-    streams["Page.1"] = write_moxel(simple_table(rows))
+    streams["Page.1"] = write_moxel(simple_table(rows, column_widths, row_heights))
     ole_writer.write_compound_file(target, streams)
 
 

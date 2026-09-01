@@ -12,6 +12,7 @@ from mcp_1c77.moxel_model import (
     FLAG_TYPE,
     CellFormat,
     FLAG_COLUMN_WIDTH,
+    FLAG_ROW_HEIGHT,
     MoxelSection,
     MoxelSheet,
 )
@@ -66,6 +67,24 @@ def test_simple_table_round_trip():
     assert back.cell_text(3, 2) == "200"
     assert back.cell_text(2, 0) is None  # blank row has no stored cells
     assert {k: v.format.w2 for k, v in back.columns.items()} == {0: 150, 1: 50, 2: 80}
+
+
+def test_simple_table_row_heights_round_trip():
+    rows = [["a", "b"], ["c", "d"]]
+    sheet = simple_table(rows, row_heights=[100, 0, 200])  # trailing blank row sized to 200
+
+    assert sheet.n_rows == 3
+    assert sheet.rows[0].format.w1 == 100
+    assert sheet.rows[0].format.has(FLAG_ROW_HEIGHT)
+    assert not sheet.rows[1].format.has(FLAG_ROW_HEIGHT)  # 0 means "no explicit height"
+    assert sheet.rows[2].cells == {}
+    assert sheet.rows[2].format.w1 == 200
+
+    back = parse_moxel(write_moxel(sheet))
+    assert back.n_rows == 3
+    assert back.rows[0].format.w1 == 100
+    assert back.rows[2].format.w1 == 200
+    assert back.cell_text(0, 0) == "a"
 
 
 def test_simple_table_cell_content_types():
